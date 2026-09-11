@@ -1,48 +1,67 @@
-# Codex × LINE Desktop — Windows Community Edition
+![LINE Agent MCP v2.0.0](assets/line-agent-cover.png)
 
-[繁體中文](../README.md) · [Windows setup](quickstart-windows.md) · [Release v1.2.0](https://github.com/bensonmaxai/line-desktop-mcp/releases/tag/v1.2.0)
+# LINE Agent MCP
 
-![LINE Desktop MCP: read, search, send, draft and export](assets/line-mcp-cover.png)
+**LINE context, including images. Faster reads, less waiting.**
 
-A community-maintained LINE Desktop MCP built from the maintainer's ongoing local use with **Codex**. Connect Codex to an already signed-in LINE Desktop application to read recent chats, find messages, send replies, manage drafts and export records. Other clients supporting local MCP can also connect; this project's everyday workflow and documentation center on Codex.
+Choose a chat and date range. Let your AI assistant organize the conversation together with available cached images into progress, attachment context and next steps. MCP supplies previews to an image-capable model; original, thumbnail and missing states stay explicit.
 
-Enable `LINE_MCP_EXTENSIONS=1` on Windows for **24 tools**. The original five-tool interface remains the default, and macOS keeps those five tools. This is a desktop GUI bridge, unaffiliated with LINE.
+[繁體中文](../README.md) · [English](README.en.md) · [日本語](README.ja.md) · [ภาษาไทย](README.th.md) · [Bahasa Indonesia](README.id.md)
 
-## What it does
+[Download v2.0.0](https://github.com/bensonmaxai/line-desktop-mcp/releases/tag/v2.0.0) · [Release notes](releases/v2.0.0.en.md) · [Install](quickstart-windows.md) · [Technical contract](windows-extensions.md)
 
-| Workflow | Capability |
+**LINE Agent MCP**, the Windows community edition maintained by [bensonmaxai](https://github.com/bensonmaxai/line-desktop-mcp), based on [Geoffrey Wang's original project](https://github.com/dtwang/line-desktop-mcp). It connects a local MCP client to a signed-in LINE Desktop. Codex is our everyday client; other local MCP clients can connect too. This project is not affiliated with LINE.
+
+Set `LINE_MCP_EXTENSIONS=1` on Windows for **29 tools**. Without the flag, the original **five tools** remain; macOS also keeps that original interface.
+
+## One conversation, a complete workflow
+
+![Read, summarize, approve, send, check](assets/workflow-en.svg)
+
+Ask your assistant to review a named chat and report current progress. It reads the authorized scope, consults separately authorized business sources when needed, and shows the exact draft in the assistant conversation. After you confirm the recipient and content, it sends and checks the result. No separate workbench is required.
+
+| Task | What v2.0.0 provides |
 | --- | --- |
-| Read conversations | Structured recent messages with real date and count filters |
-| Search and check | Literal search, optional sender/date filters and exact-text presence checks |
-| Send messages | Direct text sending or an unsent draft inside LINE |
-| Manage drafts | Read, write, verify and clear a draft while protecting concurrent user edits |
-| Export records | New-file-only TXT, JSON and CSV exports with readback and SHA-256 |
-| Work with the UI | Named-chat observation, feature navigation, quoted-reply preparation, copy, translation and forwarding selection when controls can be verified |
+| Follow up on work | Exact group/direct local history, explicit dates, up to 31 days, pagination and snapshot freshness |
+| Understand attachments | On-demand cached image previews, small PCM WAV blocks and explicit media availability |
+| Reply to the right source | Full text/sender/time checks and a one-use visual source token |
+| Inspect a poll | Read an already-open panel only after binding it to the authorized group |
+| Handle client changes | Verified LINE build hashes and distinct process states; unknown builds refuse local reads |
+| Reduce waiting | Bounded key search, temporary locator reuse and fewer redundant UI enumerations |
 
-## Install this version
+Ordinary text drafts are reviewed in Codex. The agent performs visual UI checks; real mentions and shared-content changes still need their specific workflow and approval. Plans are not evidence that an action happened.
+
+## Install and migrate
 
 ```powershell
-git clone --branch v1.2.0 --depth 1 https://github.com/bensonmaxai/line-desktop-mcp.git
+git clone --branch v2.0.0 --depth 1 https://github.com/bensonmaxai/line-desktop-mcp.git
 cd line-desktop-mcp
-npm install --ignore-scripts
+npm ci --ignore-scripts
 ```
 
-Configure your MCP client to run `node` with the absolute path to `src/server.js` and set `LINE_MCP_EXTENSIONS=1`. Desktop automation needs your separately installed LINE/AutoHotkey v2 setup. UI-dependent extension tools also need a compatible CUA Driver at the absolute executable path specified by `LINE_MCP_CUA_DRIVER`.
+Use Node.js 24 LTS or newer (tested: 24.19.0) and the separately configured runtime components for your intended tools. Local reads require Windows x64, Python x64, `cryptography` and Pillow, a pinned SQLite3MC DLL, and explicit `LINE_MCP_PYTHON` / `LINE_MCP_SQLITE3MC_DLL`. Both Python packages are required, including in metadata mode. UI tools use `LINE_MCP_CUA_DRIVER`, with AutoHotkey v2 and local Windows OCR where needed. See the [installation guide](quickstart-windows.md).
 
-Startup is noninteractive: it does not display setup dialogs, install dependencies, change PATH or create setup markers. The static `get_line_capabilities` query works without LINE, AutoHotkey or CUA. See the [Windows guide](quickstart-windows.md) for source/tarball installation and complete MCP JSON examples.
+**Upgrade from v1.2.0 in the same repository.** The MCP identity and five original tools remain. Add the local-reader dependencies, reconnect and refresh tool schemas. `stage_line_reply` requires the full `source` and a one-use `sourceToken`; older callers must update. `get_line_status.localReader` reports build/process state separately, not dependency readiness. Your LINE account and chat data do not need migration. [Upgrade and rollback](MIGRATING.md)
 
-The [GitHub release](https://github.com/bensonmaxai/line-desktop-mcp/releases/tag/v1.2.0) includes an npm `.tgz` and checksums. Registry `line-desktop-mcp@latest` and the inherited MCPB manifest still point to upstream; they do not install this community release.
+Use this GitHub tag or release `.tgz`. This project is not published to the npm registry and provides no MCPB bundle. The older `line-desktop-mcp@latest` package does not install it.
 
-## Behavior and verification
+## Evidence and limits
 
-History covers the messages currently loaded by LINE, not a complete server archive. Exports are readable records, not restorable LINE account backups. Direct sending and draft mode are separate tools; a plain `@Name` is ordinary text rather than a real LINE mention.
+![Same-machine cold-reader comparison](assets/performance.svg)
 
-The extension checks chat identity and protects drafts from changed values. Some client-drawn controls need visual handling; adapters return explicit refusal when their targets cannot be verified. Local Windows OCR is used by the bridge. The MCP client and model may process returned content according to their own configuration.
+Measured text-history cold-reader core: **17.866 → 4.661 seconds**. Warm persistent MCP reads after restart: **0.732–0.803 seconds**, before image decoding and additional client/model/GUI overhead. Two actual LINE restart/read checks passed; actual image transport was independently decoded. These are bounded same-machine observations, not universal performance guarantees.
 
-`npm test` covers protocol compatibility, filtering/export, draft and window guards, AHK generation, operation locks and fresh noninteractive startup. Source tests use synthetic inputs; packaged stdio startup and metadata were also exercised. The dated [live verification record](windows-extensions.md#live-verification-and-remaining-limits) describes the additional checks performed in this extension pass, separately from the maintainer's earlier usage.
+- Live GUI evidence: Windows LINE **26.4.2.3957, Traditional Chinese UI**, CUA Driver 0.23.2. Documentation translations do not certify other UI languages.
+- Query dates and poll planning use **Asia/Taipei, UTC+08:00**.
+- Local reading uses bounded read-only access to the signed-in LINE process memory. It stops on refused access or an unverified build.
+- Local cached records are not a full server archive. Supported previews are PNG/JPEG, GIF/WebP first frames and small PCM WAV; other recognized media returns metadata. No general playback/transcription feature is implied.
+- Text presence does not prove recipient delivery/read state. Real mention tokens need visual verification; uncertain sends are not automatically repeated.
+- Decoding and OCR run locally; returned content follows the chosen AI client's data-handling policies.
 
-## Credits and license
+Run `npm test` and `npm run test:python` with configured Python for synthetic verification. [Detailed tool contract and verification](windows-extensions.md)
 
-Original project by [Geoffrey Wang / dtwang](https://github.com/dtwang/line-desktop-mcp). Community extension and release maintained by [bensonmaxai](https://github.com/bensonmaxai/line-desktop-mcp), with the core extension contributed through [upstream PR #4](https://github.com/dtwang/line-desktop-mcp/pull/4).
+[Language selection and official sources](LANGUAGES.md) · [Report an issue](https://github.com/bensonmaxai/line-desktop-mcp/issues) · [MIT license](../LICENSE.md) · [Third-party notes](THIRD_PARTY.md)
 
-[MIT License](../LICENSE.md). Original copyright attribution is retained. Documentation images are AI-generated conceptual illustrations, not real LINE screenshots or official product assets.
+The cover is an AI-generated concept illustration. Workflow/performance graphics are code-generated, not real chat screenshots or official LINE assets.
+
+This release uses local stdio only. It exposes no HTTP/REST server and does not automatically load a cwd `.env`; configure environment variables explicitly in the MCP client.

@@ -56,14 +56,14 @@ test('default history and manual send use the original handlers and response sha
   ]);
 });
 
-test('opt-in exposes 24 unique tools and validates history before any automation', async t => {
+test('opt-in exposes 29 unique tools and validates history before any automation', async t => {
   const { client, calls } = await connect(t, { extensionsEnabled: true, runtimePlatform: 'win32' });
   const { tools } = await client.listTools();
-  assert.equal(tools.length, 24);
-  assert.equal(new Set(tools.map(tool => tool.name)).size, 24);
+  assert.equal(tools.length, 29);
+  assert.equal(new Set(tools.map(tool => tool.name)).size, 29);
   assert.ok(tools.some(tool => tool.name === 'send_file_manual'));
   const capabilities = body(await client.callTool({ name: 'get_line_capabilities', arguments: {} }));
-  assert.equal(capabilities.capabilities.length, 33);
+  assert.equal(capabilities.capabilities.length, 35);
   assert.deepEqual(calls, []);
   const invalid = await client.callTool({ name: 'get_line_chat_messages', arguments: { chatName: 'Example Chat', date: '2026-02-30' } });
   assert.equal(invalid.isError, true);
@@ -77,13 +77,20 @@ test('opt-in exposes 24 unique tools and validates history before any automation
 
 test('missing optional CUA does not prevent metadata or history and never falls through to legacy sends', async t => {
   const previous = process.env.LINE_MCP_CUA_DRIVER;
+  const previousPython = process.env.LINE_MCP_PYTHON;
   delete process.env.LINE_MCP_CUA_DRIVER;
-  t.after(() => { if (previous === undefined) delete process.env.LINE_MCP_CUA_DRIVER; else process.env.LINE_MCP_CUA_DRIVER = previous; });
+  delete process.env.LINE_MCP_PYTHON;
+  t.after(() => {
+    if (previous === undefined) delete process.env.LINE_MCP_CUA_DRIVER; else process.env.LINE_MCP_CUA_DRIVER = previous;
+    if (previousPython === undefined) delete process.env.LINE_MCP_PYTHON; else process.env.LINE_MCP_PYTHON = previousPython;
+  });
   const { client, calls } = await connect(t, { extensionsEnabled: true, runtimePlatform: 'win32' });
   assert.equal(body(await client.callTool({ name: 'get_line_workflow', arguments: { workflow: 'members' } })).performedAction, false);
   const status = await client.callTool({ name: 'get_line_status', arguments: {} });
-  assert.equal(status.isError, true);
-  assert.equal(body(status).code, 'LINE_UI_BACKEND_UNAVAILABLE');
+  assert.equal(status.isError, undefined);
+  assert.equal(body(status).success, false);
+  assert.equal(body(status).uiStatusUnavailable, true);
+  assert.equal(body(status).localReader.code, 'LINE_CLIENT_STATUS_UNAVAILABLE');
   const send = await client.callTool({ name: 'send_message_auto', arguments: { chatName: 'Example Chat', message: 'not sent' } });
   assert.equal(send.isError, true);
   assert.equal(body(send).code, 'LINE_UI_BACKEND_UNAVAILABLE');

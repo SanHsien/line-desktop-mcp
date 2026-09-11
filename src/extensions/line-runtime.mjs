@@ -27,6 +27,13 @@ export function configuredCuaDriverPath(value = process.env.LINE_MCP_CUA_DRIVER)
   return value;
 }
 
+/** Optional local reader: an explicit executable, never an implicit PATH lookup. */
+export function configuredPythonPath(value = process.env.LINE_MCP_PYTHON) {
+  if (typeof value !== 'string' || !value || value !== value.trim() || value.includes('\0')) return null;
+  if (!path.isAbsolute(value) || path.extname(value).toLowerCase() !== '.exe') return null;
+  return value;
+}
+
 export class LineToolError extends Error {
   constructor(code, message, details = {}) {
     super(message);

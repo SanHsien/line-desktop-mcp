@@ -5,9 +5,45 @@ import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { createLineExtensions, LINE_TOOL_DESCRIPTORS, validateExportPath } from '../src/extensions/line-extensions.mjs';
+import { runtimeRequire } from '../src/extensions/line-runtime.mjs';
 
 const history = '2026.09.09 星期三\n09:01 *Alice* first\n09:02 *Bob* 二行\n第二行😀\n2026.09.10 星期四\n10:00 *Alice* exact\n10:01 *Alice* not exact\n10:02 *Bob* 最後';
 const body = result => JSON.parse(result.content[0].text);
+const { CallToolResultSchema } = runtimeRequire()('@modelcontextprotocol/sdk/types.js');
+const PNG_BYTES = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL9mgAAAABJRU5ErkJggg==', 'base64');
+const JPEG_BYTES = Buffer.from([0xff, 0xd8, 0xff, 0xc0, 0, 8, 8, 0, 1, 0, 1, 1, 0xff, 0xd9]);
+
+function wavBytes() {
+  const bytes = Buffer.alloc(46);
+  bytes.write('RIFF', 0, 'ascii');
+  bytes.writeUInt32LE(bytes.length - 8, 4);
+  bytes.write('WAVEfmt ', 8, 'ascii');
+  bytes.writeUInt32LE(16, 16);
+  bytes.writeUInt16LE(1, 20); // PCM
+  bytes.writeUInt16LE(1, 22);
+  bytes.writeUInt32LE(8000, 24);
+  bytes.writeUInt32LE(8000, 28);
+  bytes.writeUInt16LE(1, 32);
+  bytes.writeUInt16LE(8, 34);
+  bytes.write('data', 36, 'ascii');
+  bytes.writeUInt32LE(2, 40);
+  bytes[44] = 0x80;
+  bytes[45] = 0x80;
+  return bytes;
+}
+
+function mediaPreview(bytes, mimeType, media = {}) {
+  return {
+    ...media,
+    preview: { mimeType, data: bytes.toString('base64') },
+    previewInfo: {
+      mimeType, decodedBytes: bytes.length,
+      decodedSha256: createHash('sha256').update(bytes).digest('hex'),
+      ...(media.previewInfo || {}),
+    },
+  };
+}
+
 function fixture(raw = history, options = {}) {
   const calls = [];
   const automation = {
@@ -23,12 +59,102 @@ function fixture(raw = history, options = {}) {
   return { extension: createLineExtensions(automation, { ui, now: () => new Date('2026-09-10T09:00:00Z'), ...options }), automation, ui, calls };
 }
 
-test('tool catalogue is unique, closed-schema and exposes the original names plus file staging', () => {
+test('tool catalogue is unique, closed-schema and exposes six compatible legacy names', () => {
   const names = LINE_TOOL_DESCRIPTORS.map(item => item.name);
   assert.equal(names.length, new Set(names).size);
-  assert.equal(names.length, 24);
+  assert.equal(names.length, 29);
   for (const name of ['get_line_chatroom_history_short', 'get_line_chatroom_history_default', 'get_line_chatroom_history_long', 'send_message_manual', 'send_message_auto', 'send_file_manual']) assert.ok(names.includes(name));
   for (const item of LINE_TOOL_DESCRIPTORS) assert.equal(item.inputSchema.additionalProperties, false);
+});
+
+test('poll reader binds a private local group identity without reading history', async () => {
+  const calls = [];
+  const identity = { chatName: '測試群組', chatRef: 'chat:' + 'b'.repeat(24), chatIdentity: { kind: 'group' },
+    scope: { kind: 'local_chat_identity' }, count: 0, messages: [] };
+  const { extension } = fixture(history, {
+    localReader: async () => assert.fail('No history reads'),
+    localIdentityReader: async scope => { calls.push(['identity', scope]); return identity; },
+    pollReader: async args => { calls.push(['poll', args]); return { state: 'draft', publicationVerified: false }; },
+  });
+  const result = body(await extension.call('get_line_poll_state', { chatName: identity.chatName }));
+  assert.equal(result.state, 'draft');
+  assert.equal(calls[0][1].chatType, 'group');
+  assert.equal(calls[0][1].messageLimit, 1);
+  assert.deepEqual(calls[1][1], { chatName: identity.chatName, chatRef: identity.chatRef, includeScreenshot: false });
+  identity.chatIdentity.kind = 'direct';
+  const refused = body(await extension.call('get_line_poll_state', { chatName: identity.chatName }));
+  assert.equal(refused.code, 'LINE_POLL_CHAT_IDENTITY_UNVERIFIED');
+  assert.equal(calls.filter(item => item[0] === 'poll').length, 1);
+});
+
+test('status preserves independent client evidence when the GUI backend is unavailable', async () => {
+  const local = { ok: true, client: { verified: true }, process: { state: 'running' } };
+  const { extension, calls } = fixture(history, { clientStatus: async () => local,
+    ui: { getStatus: async () => { throw new Error('synthetic GUI failure'); } } });
+  const result = body(await extension.call('get_line_status', {}));
+  assert.equal(result.uiStatusUnavailable, true);
+  assert.deepEqual(result.localReader, local);
+  assert.deepEqual(calls, []);
+});
+
+test('quoted visual source requires fresh local identity before any UI selection', async () => {
+  const source = { sourceRef: 'message:' + 'a'.repeat(24), text: 'full source\n第二行', sender: 'Alice', date: '2026-09-10', time: '10:54' };
+  const calls = [];
+  let row = { ...source, time: '10:54:47' };
+  const ui = { getReplySourceTarget: async args => { calls.push(['ui', args]); return { replySourceTarget: { token: 'issued' } }; },
+    confirmReplySourceTarget: async args => { calls.push(['confirm', args]); return { confirmed: true }; },
+    messageAction: async args => { calls.push(['stage', args]); return { sent: false }; } };
+  const { extension } = fixture(history, { ui, localReader: async scope => {
+    calls.push(['local', scope]);
+    return { messages: [row], chatIdentity: { kind: 'direct' }, scope: { truncated: false }, freshness: { snapshotCapturedAt: '2026-09-10T08:00:00Z' } };
+  } });
+  const args = { chatName: 'Alice', chatType: 'direct', source };
+  const result = body(await extension.call('get_line_reply_source_target', args));
+  assert.equal(result.localSourceVerification.verified, true);
+  assert.equal(result.localSourceVerification.timePrecision, 'minute');
+  assert.equal(result.localSourceVerification.uiSourceRefVerified, false);
+  assert.equal(calls[0][1].dateFrom, source.date);
+  assert.equal(calls[0][1].dateTo, source.date);
+  assert.equal(calls[0][1].chatType, 'direct');
+  assert.equal(calls[0][1].mediaMode, 'metadata');
+  assert.equal(calls[1][1].chatType, 'direct');
+  assert.deepEqual(calls.map(c => c[0]), ['local', 'ui']);
+  for (const change of [{sender:'Bob'}, {time:'11:54:47'}, {text:'different'}, {sourceRef:'message:'+'b'.repeat(24)}]) {
+    calls.length = 0; row = { ...source, time: '10:54:47', ...change };
+    const mismatch = await extension.call('get_line_reply_source_target', args);
+    assert.equal(body(mismatch).code, 'LINE_REPLY_SOURCE_LOCAL_MISMATCH');
+    assert.deepEqual(calls.map(c => c[0]), ['local']);
+  }
+  calls.length = 0;
+  const missing = await extension.call('stage_line_reply', {chatName:'Alice',messageText:source.text,replyText:'test'});
+  assert.equal(missing.isError, true);
+  assert.deepEqual(calls, []);
+  await extension.call('stage_line_reply', {chatName:'Alice',messageText:source.text,replyText:'test',source,sourceToken:'issued'});
+  assert.equal(calls[0][1].sourceToken, 'issued');
+  assert.deepEqual(calls[0][1].source, source);
+});
+
+test('quote source refuses visually identical minutes and truncated windows before UI', async () => {
+  const source = { sourceRef: 'message:' + 'a'.repeat(24), text: 'same full text', sender: 'Alice', date: '2026-09-10', time: '10:54:47' };
+  const rows = [{ ...source }];
+  let truncated = false, uiCalls = 0;
+  const { extension } = fixture(history, { localReader: async () => ({ messages: rows,
+    chatIdentity: { kind: 'direct' }, scope: { truncated } }),
+    ui: { getReplySourceTarget: async () => { uiCalls++; return {}; } },
+  });
+  const args = { chatName: 'Alice', source };
+  const unique = body(await extension.call('get_line_reply_source_target', args));
+  assert.equal(unique.localSourceVerification.localTimePrecision, 'second');
+  assert.equal(unique.localSourceVerification.visualTimePrecision, 'minute');
+  assert.equal(uiCalls, 1);
+  rows.push({ ...source, sourceRef: 'message:' + 'b'.repeat(24), time: '10:54:58' });
+  const ambiguous = body(await extension.call('get_line_reply_source_target', args));
+  assert.equal(ambiguous.code, 'LINE_REPLY_SOURCE_VISUALLY_AMBIGUOUS');
+  assert.equal(uiCalls, 1);
+  rows.pop(); truncated = true;
+  const incomplete = body(await extension.call('get_line_reply_source_target', args));
+  assert.equal(incomplete.code, 'LINE_REPLY_SOURCE_LOCAL_WINDOW_TRUNCATED');
+  assert.equal(uiCalls, 1);
 });
 
 test('invalid schemas, exact-chat inputs and impossible dates never reach LINE', async () => {
@@ -174,4 +300,171 @@ test('capability and visual workflow queries perform no UI work', async () => {
   assert.equal(workflow.performedAction, false);
   assert.equal(workflow.execution, 'guidance_only');
   assert.deepEqual(calls, []);
+});
+
+test('workflow plans validate through MCP without invoking LINE or implying approval', async () => {
+  const noUi = new Proxy({}, { get: () => { throw new Error('Planner accessed UI'); } });
+  const { extension, calls } = fixture(history, { ui: noUi });
+  const plans = [
+    { workflow: 'mentions', chatName: 'Test', message: '測試', mentionTargets: ['All'] },
+    { workflow: 'reply', chatName: 'Test', message: '回覆', source: { text: '原文', sender: 'Alice', date: '2026-09-09', time: '09:01' } },
+    { workflow: 'polls', chatName: 'Test', poll: { question: '測試', options: ['A', 'B'], multipleChoice: false, anonymous: true, allowAddOptions: false, deadline: '2026-09-12T18:00+08:00' } },
+  ];
+  for (const args of plans) {
+    const result = await extension.call('prepare_line_workflow', args);
+    assert.notEqual(result.isError, true);
+    const prepared = body(result);
+    assert.equal(prepared.execution, 'preparation_only');
+    assert.match(prepared.planId, /^[a-f0-9]{64}$/);
+    for (const key of ['performedAction', 'sent', 'published', 'permissionVerified', 'uiVerified']) assert.equal(prepared[key], false);
+  }
+  for (const args of [
+    { ...plans[0], poll: plans[2].poll },
+    { ...plans[0], mentionTargets: ['@All'] },
+    { ...plans[1], source: { ...plans[1].source, date: '2026-02-30' } },
+    { ...plans[2], poll: { ...plans[2].poll, deadline: '2026-09-10T16:59+08:00' } },
+    { ...plans[2], poll: { ...plans[2].poll, anonymous: 'false' } },
+    { ...plans[2], poll: { ...plans[2].poll, options: ['Ａ', 'Ａ '] } },
+  ]) assert.equal((await extension.call('prepare_line_workflow', args)).isError, true);
+  assert.deepEqual(calls, []);
+  assert.equal(body(await extension.call('get_line_workflow', { workflow: 'reply' })).performedAction, false);
+});
+
+test('local history avoids GUI by default and only cross-checks when explicitly requested', async () => {
+  const localCalls = [];
+  const localReader = async args => {
+    localCalls.push(args);
+    return { ok: true, chatName: args.chatName, retrievedAt: '2026-09-10T09:00:00Z', count: 1,
+      scope: { kind: 'local_database', requested: { ...args, messageLimit: args.messageLimit ?? 200 } },
+      messages: [{ sourceRef: 'message:fixture', date: '2026-09-10', time: '10:00:05', sender: 'Alice', text: 'exact', contentType: 0 }],
+    };
+  };
+  const args = { chatName: 'Test', dateFrom: '2026-09-09', dateTo: '2026-09-10' };
+  const { extension, calls } = fixture(history, { localReader });
+  const local = body(await extension.call('get_line_local_messages', args));
+  assert.equal(local.count, 1);
+  assert.equal(local.crossCheck.status, 'not_requested');
+  assert.equal(local.crossCheck.uiReadAttempted, false);
+  assert.equal(localCalls[0].mediaMode, 'metadata');
+  assert.deepEqual(calls, []);
+  const crossed = body(await extension.call('get_line_local_messages', { ...args, compareWithUi: true }));
+  assert.equal(crossed.crossCheck.status, 'completed');
+  assert.equal(crossed.crossCheck.matches.length, 1);
+  assert.equal(crossed.crossCheck.uiActionIdentityVerified, false);
+  assert.equal(crossed.crossCheck.deliveryVerified, false);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0][3], 200);
+  assert.equal(calls[0][4], 5);
+  assert.equal(localCalls.length, 2);
+  assert.equal(Object.hasOwn(localCalls[1], 'compareWithUi'), false);
+  assert.equal((await extension.call('get_line_local_messages', { ...args, compareWithUi: 'true' })).isError, true);
+  assert.equal(localCalls.length, 2);
+});
+
+test('local media stays opt-in through MCP and exposes validated native images only when requested', async () => {
+  const ref = 'message:' + 'a'.repeat(24);
+  const args = { chatName: 'Test', dateFrom: '2026-09-09', dateTo: '2026-09-09' };
+  const { extension, calls } = fixture(history, { localReader: async scope => ({
+    ok: true, chatName: scope.chatName, count: 1,
+    scope: { kind: 'local_database', requested: scope },
+    messages: [{ sourceRef: ref, media: scope.mediaMode === 'preview'
+      ? mediaPreview(PNG_BYTES, 'image/png', { state: 'decoded', mediaType: 'image',
+        previewInfo: { width: 1, height: 1 } })
+      : { state: 'not_resolved', retrieval: 'metadata_only' } }],
+  }) });
+  const plain = await extension.call('get_line_local_messages', args);
+  assert.equal(plain.content.length, 1);
+  const preview = await extension.call('get_line_local_messages', { ...args, mediaMode: 'preview', mediaSourceRefs: [ref] });
+  assert.equal(preview.content[1].type, 'image');
+  assert.equal(body(preview).messages[0].media.imageContentIndex, 1);
+  assert.equal(calls.length, 0);
+  assert.equal((await extension.call('get_line_local_messages', { ...args, mediaSourceRefs: [ref] })).isError, true);
+});
+
+test('local media emits only verified image and WAV MCP blocks with text-indexed mixed content', async () => {
+  const refs = ['a', 'b', 'c'].map(letter => `message:${letter.repeat(24)}`);
+  const image = mediaPreview(PNG_BYTES, 'image/png', { state: 'decoded', mediaType: 'image',
+    previewInfo: { width: 1, height: 1 } });
+  const audio = mediaPreview(wavBytes(), 'audio/wav', { state: 'decoded', mediaType: 'audio', format: 'WAV',
+    formatValidation: 'wave_header_and_frames', playbackUnverified: true });
+  const jpeg = mediaPreview(JPEG_BYTES, 'image/jpeg', { state: 'decoded', mediaType: 'image',
+    previewInfo: { width: 1, height: 1 } });
+  const { extension } = fixture(history, { localReader: async scope => ({
+    ok: true, chatName: scope.chatName, count: 3, scope: { kind: 'local_database', requested: scope },
+    messages: refs.map((sourceRef, index) => ({ sourceRef, media: [image, audio, jpeg][index] })),
+  }) });
+  const result = await extension.call('get_line_local_messages', {
+    chatName: 'Test', dateFrom: '2026-09-09', dateTo: '2026-09-09', mediaMode: 'preview', mediaSourceRefs: refs,
+  });
+  assert.deepEqual(result.content.map(item => item.type), ['text', 'image', 'audio', 'image']);
+  const response = body(result);
+  assert.equal(response.messages[0].media.imageContentIndex, 1);
+  assert.equal(response.messages[1].media.audioContentIndex, 2);
+  assert.equal(response.messages[2].media.imageContentIndex, 3);
+  for (const message of response.messages) assert.equal(Object.hasOwn(message.media, 'preview'), false);
+  const parsed = CallToolResultSchema.safeParse(result);
+  assert.equal(parsed.success, true, parsed.success ? '' : JSON.stringify(parsed.error.issues));
+});
+
+test('local media makes rejected preview transport explicit instead of silently dropping it', async () => {
+  const ref = letter => `message:${letter.repeat(24)}`;
+  const mimeDataMismatch = mediaPreview(JPEG_BYTES, 'image/png', { state: 'decoded', mediaType: 'image',
+    previewInfo: { width: 1, height: 1 } });
+  const oversized = mediaPreview(Buffer.alloc(256 * 1024 + 1), 'image/png', { state: 'decoded', mediaType: 'image',
+    previewInfo: { width: 1, height: 1 } });
+  const invalidAudio = mediaPreview(wavBytes(), 'audio/wav', { state: 'decoded', mediaType: 'audio', format: 'WAV',
+    formatValidation: 'signature_only', playbackUnverified: true });
+  const unsupported = mediaPreview(PNG_BYTES, 'image/webp', { state: 'decoded', mediaType: 'image',
+    previewInfo: { width: 1, height: 1 } });
+  const noncanonical = mediaPreview(PNG_BYTES, 'image/png', { state: 'decoded', mediaType: 'image',
+    previewInfo: { width: 1, height: 1 } });
+  noncanonical.preview.data += '\n';
+  const messages = [mimeDataMismatch, oversized, invalidAudio, unsupported, noncanonical]
+    .map((media, index) => ({ sourceRef: ref(String.fromCharCode(97 + index)), media }));
+  const { extension } = fixture(history, { localReader: async scope => ({
+    ok: true, chatName: scope.chatName, count: messages.length, scope: { kind: 'local_database', requested: scope }, messages,
+  }) });
+  const result = await extension.call('get_line_local_messages', {
+    chatName: 'Test', dateFrom: '2026-09-09', dateTo: '2026-09-09', mediaMode: 'preview',
+    mediaSourceRefs: messages.map(message => message.sourceRef),
+  });
+  assert.equal(result.content.length, 1);
+  const returned = body(result).messages.map(message => message.media);
+  assert.deepEqual(returned.map(media => media.previewOmittedReason), [
+    'preview_dimensions_invalid', 'preview_size_exceeded', 'preview_audio_not_validated',
+    'preview_mime_unsupported', 'preview_data_invalid',
+  ]);
+  for (const media of returned) assert.equal(Object.hasOwn(media, 'preview'), false);
+});
+
+test('small original images wider than derived-preview limits retain the reader pixel contract', async () => {
+  const bytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAC7gAAAACCAIAAABHIQbHAAAAMklEQVR4nO3OAQ0AMAgDMMC/590FJE+roJ2kAAAAAAAAAADgd3MdAAAAAAAAAACAWvAA/FQDAeYlAUoAAAAASUVORK5CYII=', 'base64');
+  let media = mediaPreview(bytes, 'image/png', { mediaType: 'image',
+    previewInfo: { width: 3000, height: 2 } });
+  const { extension } = fixture(history, { localReader: async () => ({ messages: [{ media }] }) });
+  const args = { chatName: 'Test', dateFrom: '2026-09-09', dateTo: '2026-09-09', mediaMode: 'preview' };
+  assert.equal((await extension.call('get_line_local_messages', args)).content[1].type, 'image');
+  const impossible = Buffer.from(bytes);
+  impossible.writeUInt32BE(10000, 16);
+  impossible.writeUInt32BE(10000, 20);
+  media = mediaPreview(impossible, 'image/png', { mediaType: 'image',
+    previewInfo: { width: 10000, height: 10000 } });
+  const refused = await extension.call('get_line_local_messages', args);
+  assert.equal(refused.content.length, 1);
+  assert.equal(body(refused).messages[0].media.previewOmittedReason, 'preview_dimensions_invalid');
+});
+
+test('failed UI comparison preserves usable local data without retry; failed local read never falls back', async () => {
+  const args = { chatName: 'Test', dateFrom: '2026-09-09', dateTo: '2026-09-10', compareWithUi: true };
+  const localReader = async scope => ({ ok: true, chatName: scope.chatName, count: 0, messages: [], scope: { kind: 'local_database', requested: { ...scope, messageLimit: 200 } } });
+  const failedUi = fixture('ERROR: fixture history unavailable', { localReader });
+  const result = await failedUi.extension.call('get_line_local_messages', args);
+  assert.notEqual(result.isError, true);
+  assert.equal(body(result).crossCheck.status, 'unavailable');
+  assert.equal(body(result).crossCheck.code, 'HISTORY_READ_FAILED');
+  assert.equal(body(result).count, 0);
+  assert.equal(failedUi.calls.length, 1);
+  const failedLocal = fixture(history, { localReader: async () => { throw new Error('Local fixture unavailable'); } });
+  assert.equal((await failedLocal.extension.call('get_line_local_messages', args)).isError, true);
+  assert.deepEqual(failedLocal.calls, []);
 });

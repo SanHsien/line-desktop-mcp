@@ -17,6 +17,12 @@ import {
   purepngDimensions,
   recognizeLineImage,
 } from './line-ocr.mjs';
+import {
+  requireReplySource,
+  requireReplySourceSelection,
+  sameReplySource,
+  selectAccessibleReplyBubble,
+} from './line-quote-binding.mjs';
 import { withLineOperation } from '../automation/line-operation-lock.mjs';
 
 /** The driver-reported application name used to bind every LINE window. */
@@ -37,6 +43,7 @@ export const LINE_FEATURES = Object.freeze([
 ]);
 
 const ACTIONS = Object.freeze(['copy', 'reply', 'translate', 'forward']);
+const REPLY_CHAT_TYPES = Object.freeze(['direct', 'group']);
 
 // These are fixed labels and shortcuts documented in the local LINE runbook.
 // They are exact alternatives for localized LINE Desktop builds, never
@@ -157,8 +164,7 @@ const VISUAL_CONFIRMATION_TTL_MS = 120_000;
 /**
  * Semantic, fail-closed adapter for the parts of LINE Desktop that expose a
  * stable CUA accessibility contract. It deliberately does not infer a chat
- * from a sidebar/search result. Pixel targets require fresh grounded evidence;
- * foreground delivery is explicit and never retried automatically.
+ * from a sidebar/search result or fall back to pixels/foreground input.
  */
 export class LineUi {
   constructor({
@@ -197,6 +203,8 @@ export class LineUi {
       now,
       pending: new Map(),
       confirmed: new Map(),
+      pendingReplySources: new Map(),
+      confirmedReplySources: new Map(),
     };
   }
 
@@ -243,7 +251,8 @@ export class LineUi {
     requireChat(chatName);
     requireText(token, 'token', 256);
     requireText(observedHeader, 'observedHeader', 240);
-    if (!chatHeaderTextMatch(observedHeader, chatName)) {
+    const headerMatch = chatHeaderTextMatch(observedHeader, chatName);
+    if (!headerMatch) {
       throw new LineToolError(
         'LINE_CHAT_CONFIRMATION_INVALID',
         'observedHeader must be the exact requested chat header, optionally followed by one member-count suffix.',
@@ -268,6 +277,7 @@ export class LineUi {
         chatName,
         target: fresh.target,
         fingerprint,
+        chatType: headerMatch.groupMemberCount === undefined ? 'direct' : 'group',
         expiresAt: this.#expiresAt(),
       });
       return {
@@ -276,6 +286,135 @@ export class LineUi {
         verification: 'caller-confirmed-fresh-header-crop',
         confidence: 'medium',
         expiresAt: new Date(this.visual.confirmed.get(chatName).expiresAt).toISOString(),
+      };
+    }));
+  }
+
+  /**
+   * Return one fresh, verified-chat screenshot for a caller to visually locate
+   * a reply source. This does not claim that the local sourceRef is present in
+   * LINE UI, and does not choose or click a bubble.
+   */
+  async getReplySourceTarget({ chatName, chatType, source } = {}) {
+    requireChat(chatName);
+    requireChoice(chatType, 'chatType', REPLY_CHAT_TYPES);
+    const expectedSource = requireReplySource(source);
+    return this.#run('ui-get-reply-source-target', async () => this.#withVerifiedChat(
+      chatName,
+      async (api, inspected) => {
+        const guard = this.#chatGuard(chatName, inspected, { expectedChatType: chatType });
+        const state = await snapshot(api, inspected.target, { screenshot: true });
+        await assertChatGuard(api, inspected.target, state, guard);
+        return this.#createPendingReplySourceTarget(chatName, expectedSource, inspected, guard, state);
+      },
+      { expectedChatType: chatType },
+    ));
+  }
+
+  /**
+   * Bind a caller-observed source identity to a single point and rectangle in
+   * the previously returned screenshot. Both the header and source crop must
+   * still match a fresh screenshot before the token can be used once.
+   */
+  async confirmReplySourceTarget({
+    chatName,
+    token,
+    observedSource,
+    sourceRect,
+    sourcePoint,
+  } = {}) {
+    requireChat(chatName);
+    requireText(token, 'token', 256);
+    const observed = requireReplySource(observedSource, 'observedSource');
+    return this.#run('ui-confirm-reply-source-target', async () => this.withClient(async api => {
+      this.#pruneVisualRecords();
+      const pending = this.visual.pendingReplySources.get(token);
+      if (!pending || pending.chatName !== chatName) {
+        throw new LineToolError('LINE_REPLY_SOURCE_CONFIRMATION_INVALID', 'The reply-source token is unknown, expired, or belongs to another chat.');
+      }
+      assertReplySourceChatTypeBinding(pending);
+      if (!sameReplySource(pending.source, observed)) {
+        throw new LineToolError(
+          'LINE_REPLY_SOURCE_CONFIRMATION_INVALID',
+          'The observed reply source must exactly equal the source attached to this screenshot token.',
+        );
+      }
+
+      const selection = requireReplySourceSelection(
+        { sourceRect, sourcePoint },
+        { imageSize: pending.imageBounds, messageBounds: pending.messageBounds },
+      );
+      const originalFingerprint = await captureReplySourceFingerprint(
+        pending.image,
+        selection.sourceRect,
+        this.visual,
+      );
+      if (!originalFingerprint) {
+        this.visual.pendingReplySources.delete(token);
+        throw new LineToolError('LINE_REPLY_SOURCE_UNVERIFIED', 'The reply-source screenshot crop could not be safely fingerprinted. Request a new source view.');
+      }
+
+      let current;
+      try {
+        current = await inspectExactMainWindow(api, pending.target);
+      } catch (error) {
+        this.visual.pendingReplySources.delete(token);
+        throw error;
+      }
+      const freshState = await snapshot(api, current.target, { screenshot: true });
+      await assertChatGuard(api, current.target, freshState, pending.guard);
+      const freshView = replySourceVisualView(freshState, current.window, pending.guard, this.visual);
+      if (!freshView || !sameRegion(pending.messageBounds, freshView.messageBounds)) {
+        this.visual.pendingReplySources.delete(token);
+        throw new LineToolError('LINE_REPLY_SOURCE_STALE', 'The LINE message area changed before reply-source confirmation. Request a fresh source view.');
+      }
+      // Re-validate against the fresh message area before comparing pixels.
+      requireReplySourceSelection(selection, { imageSize: freshView.imageBounds, messageBounds: freshView.messageBounds });
+      const freshFingerprint = await captureReplySourceFingerprint(
+        freshView.image,
+        selection.sourceRect,
+        this.visual,
+      );
+      if (!freshFingerprint || !sameReplySourceFingerprint(originalFingerprint, freshFingerprint)) {
+        this.visual.pendingReplySources.delete(token);
+        throw new LineToolError('LINE_REPLY_SOURCE_STALE', 'The selected LINE source pixels changed before confirmation. Request a fresh source view.');
+      }
+
+      // Accessibility can strengthen a visually selected point when it exposes
+      // message bubbles. Its absence is normal for the current custom-drawn UI;
+      // it never downgrades the caller-confirmed visual source to a text match.
+      selectAccessibleReplyBubble(
+        accessibleReplyMessageCandidates(freshState, pending.source.text, freshView),
+        selection.sourcePoint,
+      );
+
+      this.visual.pendingReplySources.delete(token);
+      const expiresAt = this.#expiresAt();
+      this.visual.confirmedReplySources.set(token, {
+        chatName,
+        chatType: pending.chatType,
+        source: pending.source,
+        target: current.target,
+        guard: pending.guard,
+        messageBounds: freshView.messageBounds,
+        sourceRect: selection.sourceRect,
+        sourcePoint: selection.sourcePoint,
+        fingerprint: freshFingerprint,
+        expiresAt,
+      });
+      return {
+        success: true,
+        chatName,
+        replySourceTarget: {
+          token,
+          expiresAt: new Date(expiresAt).toISOString(),
+          sourceRect: selection.sourceRect,
+          sourcePoint: selection.sourcePoint,
+        },
+        localSourceRef: pending.source.sourceRef,
+        uiSourceRefVerified: false,
+        sourceIdentityVerification: 'caller-confirmed-fresh-visual-source-region',
+        confidence: 'medium',
       };
     }));
   }
@@ -382,7 +521,7 @@ export class LineUi {
     ));
   }
 
-  async messageAction({ chatName, messageText, action, replyText } = {}) {
+  async messageAction({ chatName, messageText, action, replyText, source, sourceToken } = {}) {
     requireChat(chatName);
     requireText(messageText, 'messageText', 10_000);
     requireChoice(action, 'action', ACTIONS);
@@ -392,20 +531,47 @@ export class LineUi {
       }
       requireText(replyText, 'replyText', 10_000);
     }
+    const hasReplySource = source !== undefined || sourceToken !== undefined;
+    let expectedSource;
+    if (hasReplySource) {
+      if (action !== 'reply') {
+        throw new LineToolError('LINE_INVALID_ARGUMENT', 'source and sourceToken are only valid for a reply action.');
+      }
+      expectedSource = requireReplySource(source);
+      requireText(sourceToken, 'sourceToken', 256);
+      if (expectedSource.text !== messageText) {
+        throw new LineToolError('LINE_INVALID_ARGUMENT', 'messageText must exactly equal source.text for a visually bound reply.');
+      }
+    }
 
-    return this.#run('ui-message-action', async () => this.#withVerifiedChat(
-      chatName,
-      async (api, inspected) => runMessageAction(
-        api,
-        inspected,
+    return this.#run('ui-message-action', async () => {
+      const expectedChatType = expectedSource
+        ? this.#peekConfirmedReplySourceChatType(chatName, expectedSource, sourceToken)
+        : undefined;
+      return this.#withVerifiedChat(
         chatName,
-        messageText,
-        action,
-        replyText,
-        composerOptions(inspected, this.#chatGuard(chatName, inspected)),
-        this.ocr,
-      ),
-    ));
+        async (api, inspected) => {
+          let guard = this.#chatGuard(chatName, inspected);
+          const sourceBinding = expectedSource
+            ? this.#takeConfirmedReplySource(chatName, expectedSource, sourceToken, inspected)
+            : undefined;
+          if (sourceBinding) guard = sourceBinding.guard;
+          return runMessageAction(
+            api,
+            inspected,
+            chatName,
+            messageText,
+            action,
+            replyText,
+            composerOptions(inspected, guard),
+            this.ocr,
+            this.visual,
+            sourceBinding,
+          );
+        },
+        { expectedChatType },
+      );
+    });
   }
 
   async sendText({ chatName, message, autoSend = false } = {}) {
@@ -447,28 +613,42 @@ export class LineUi {
     return this.runOperation(kind, fn);
   }
 
-  async #withVerifiedChat(chatName, callback, { screenshot = false } = {}) {
+  async #withVerifiedChat(chatName, callback, { screenshot = false, expectedChatType } = {}) {
     return this.withClient(async api => {
-      const inspected = await this.#findVerifiedChat(api, chatName, { screenshot });
+      const inspected = await this.#findVerifiedChat(api, chatName, { screenshot, expectedChatType });
       return callback(api, inspected);
     });
   }
 
-  async #findVerifiedChat(api, chatName, { screenshot = false } = {}) {
+  async #findVerifiedChat(api, chatName, { screenshot = false, expectedChatType } = {}) {
     // A uniquely titled detached LINE window is already an exact chat target.
     // Inspect it before the legacy selection wrappers so draft-only work does
     // not create or focus a second window.
-    const alreadyOpen = await inspectDetachedChat(api, chatName, { screenshot });
-    if (alreadyOpen) return alreadyOpen;
+    const initialWindows = await listLineWindows(api);
+    const alreadyOpen = await inspectDetachedChat(api, chatName, { screenshot, lineWindows: initialWindows });
+    if (alreadyOpen) {
+      if (expectedChatType !== undefined) assertReplySourceChatType(alreadyOpen, expectedChatType);
+      return alreadyOpen;
+    }
 
-    let candidate = await inspectMainChat(api, chatName, { screenshot, ocr: this.ocr });
+    let candidate = await inspectMainChat(api, chatName, { screenshot, ocr: this.ocr, lineWindows: initialWindows });
     let accepted = await this.#acceptMainCandidate(api, chatName, candidate);
-    if (accepted) return accepted;
+    if (accepted) {
+      if (expectedChatType !== undefined) assertReplySourceChatType(accepted, expectedChatType);
+      return accepted;
+    }
+    // A reply-source type comes from the freshly scoped local reader. Do not
+    // invoke the legacy name-only selector when the current exact header is a
+    // different kind or cannot prove a kind at all.
+    if (expectedChatType !== undefined) assertReplySourceChatType(candidate, expectedChatType);
 
     await selectChatWithExistingAutomation(this.automation, chatName);
     candidate = await inspectMainChat(api, chatName, { screenshot, ocr: this.ocr });
     accepted = await this.#acceptMainCandidate(api, chatName, candidate);
-    if (accepted) return accepted;
+    if (accepted) {
+      if (expectedChatType !== undefined) assertReplySourceChatType(accepted, expectedChatType);
+      return accepted;
+    }
 
     throw new LineToolError(
       'LINE_CHAT_UNVERIFIED',
@@ -478,10 +658,11 @@ export class LineUi {
   }
 
   async #findChatState(api, chatName, { screenshot = false } = {}) {
-    const alreadyOpen = await inspectDetachedChat(api, chatName, { screenshot });
+    const initialWindows = await listLineWindows(api);
+    const alreadyOpen = await inspectDetachedChat(api, chatName, { screenshot, lineWindows: initialWindows });
     if (alreadyOpen) return { inspected: alreadyOpen };
 
-    let candidate = await inspectMainChat(api, chatName, { screenshot, ocr: this.ocr });
+    let candidate = await inspectMainChat(api, chatName, { screenshot, ocr: this.ocr, lineWindows: initialWindows });
     let accepted = await this.#acceptMainCandidate(api, chatName, candidate);
     if (accepted) return { inspected: accepted };
     // A screenshot request is the visual fallback: do not activate/search a
@@ -513,6 +694,10 @@ export class LineUi {
     this.#pruneVisualRecords();
     const confirmed = this.visual.confirmed.get(chatName);
     if (!confirmed || !sameTarget(confirmed.target, candidate.target)) return undefined;
+    if (!REPLY_CHAT_TYPES.includes(confirmed.chatType)) {
+      this.visual.confirmed.delete(chatName);
+      return undefined;
+    }
     const fresh = await inspectExactMainWindow(api, candidate.target);
     const fingerprint = await captureHeaderFingerprint(fresh.state, fresh.window, this.visual, { includeImage: false });
     if (!fingerprint || !sameHeaderFingerprint(confirmed.fingerprint, fingerprint)) {
@@ -525,12 +710,13 @@ export class LineUi {
       proof: {
         kind: 'cached-caller-confirmed-main-header-crop',
         confidence: 'medium',
+        chatType: confirmed.chatType,
       },
     };
   }
 
-  #chatGuard(chatName, inspected) {
-    return createChatGuard(chatName, inspected, this.ocr, this.visual);
+  #chatGuard(chatName, inspected, options) {
+    return createChatGuard(chatName, inspected, this.ocr, this.visual, options);
   }
 
   async #createPendingVisualState(chatName, candidate) {
@@ -543,10 +729,7 @@ export class LineUi {
       );
     }
     this.#pruneVisualRecords();
-    const token = this.visual.randomToken();
-    if (typeof token !== 'string' || !token || token.length > 256 || this.visual.pending.has(token)) {
-      throw new LineToolError('LINE_UI_BACKEND_PROTOCOL', 'The visual-confirmation token generator did not return one fresh bounded token.');
-    }
+    const token = this.#newVisualToken();
     const expiresAt = this.#expiresAt();
     this.visual.pending.set(token, {
       chatName,
@@ -567,6 +750,91 @@ export class LineUi {
     };
   }
 
+  async #createPendingReplySourceTarget(chatName, source, inspected, guard, state) {
+    assertReplySourceChatTypeBinding({ chatType: guard?.chatType, guard });
+    const view = replySourceVisualView(state, inspected.window, guard, this.visual);
+    if (!view) {
+      throw new LineToolError(
+        'LINE_REPLY_SOURCE_UNVERIFIED',
+        'LINE did not expose one bounded message area between the verified chat header and composer. Use a fresh guided visual workflow instead of guessing a reply point.',
+      );
+    }
+    this.#pruneVisualRecords();
+    const token = this.#newVisualToken();
+    const expiresAt = this.#expiresAt();
+    this.visual.pendingReplySources.set(token, {
+      chatName,
+      chatType: guard.chatType,
+      source,
+      target: inspected.target,
+      guard,
+      image: view.image,
+      imageBounds: view.imageBounds,
+      messageBounds: view.messageBounds,
+      expiresAt,
+    });
+    return {
+      success: true,
+      chatName,
+      replySourceTarget: {
+        token,
+        expiresAt: new Date(expiresAt).toISOString(),
+        imageBounds: view.imageBounds,
+        messageBounds: view.messageBounds,
+        selectionRequired: ['sourceRect', 'sourcePoint'],
+      },
+      localSourceRef: source.sourceRef,
+      uiSourceRefVerified: false,
+      sourceIdentityVerification: 'visual-selection-pending',
+      confidence: 'pending',
+      images: [view.image],
+    };
+  }
+
+  #takeConfirmedReplySource(chatName, source, sourceToken, inspected) {
+    this.#pruneVisualRecords();
+    const binding = this.visual.confirmedReplySources.get(sourceToken);
+    const expectedChatType = this.#peekConfirmedReplySourceChatType(chatName, source, sourceToken);
+    try {
+      assertReplySourceChatType(inspected, expectedChatType);
+    } catch (error) {
+      this.visual.confirmedReplySources.delete(sourceToken);
+      throw error;
+    }
+    if (!sameTarget(binding.target, inspected.target)) {
+      throw new LineToolError('LINE_REPLY_SOURCE_STALE', 'The verified LINE chat target changed after source confirmation. No reply action was taken.');
+    }
+    // A source-target token is deliberately consumed before its right-click
+    // path begins. Even a transport refusal must never reuse a point selected
+    // from a prior screenshot.
+    this.visual.confirmedReplySources.delete(sourceToken);
+    return binding;
+  }
+
+  #peekConfirmedReplySourceChatType(chatName, source, sourceToken) {
+    this.#pruneVisualRecords();
+    const binding = this.visual.confirmedReplySources.get(sourceToken);
+    if (!binding || binding.chatName !== chatName) {
+      throw new LineToolError('LINE_REPLY_SOURCE_CONFIRMATION_INVALID', 'The reply-source token is unknown, expired, already used, or belongs to another chat.');
+    }
+    if (!sameReplySource(binding.source, source)) {
+      throw new LineToolError('LINE_REPLY_SOURCE_CONFIRMATION_INVALID', 'The reply source does not exactly match the source confirmed for this token.');
+    }
+    assertReplySourceChatTypeBinding(binding);
+    return binding.chatType;
+  }
+
+  #newVisualToken() {
+    const token = this.visual.randomToken();
+    if (typeof token !== 'string' || !token || token.length > 256
+      || this.visual.pending.has(token)
+      || this.visual.pendingReplySources.has(token)
+      || this.visual.confirmedReplySources.has(token)) {
+      throw new LineToolError('LINE_UI_BACKEND_PROTOCOL', 'The visual-confirmation token generator did not return one fresh bounded token.');
+    }
+    return token;
+  }
+
   #expiresAt() {
     const now = Number(this.visual.now());
     if (!Number.isFinite(now)) {
@@ -585,6 +853,12 @@ export class LineUi {
     }
     for (const [chatName, record] of this.visual.confirmed) {
       if (!Number.isFinite(record?.expiresAt) || record.expiresAt <= now) this.visual.confirmed.delete(chatName);
+    }
+    for (const [token, record] of this.visual.pendingReplySources) {
+      if (!Number.isFinite(record?.expiresAt) || record.expiresAt <= now) this.visual.pendingReplySources.delete(token);
+    }
+    for (const [token, record] of this.visual.confirmedReplySources) {
+      if (!Number.isFinite(record?.expiresAt) || record.expiresAt <= now) this.visual.confirmedReplySources.delete(token);
     }
   }
 }
@@ -669,9 +943,9 @@ async function inspectDetachedChat(api, chatName, { screenshot = false, lineWind
  * chat, the visible title is normally just LINE, so this deliberately returns
  * an unproven candidate instead of treating sidebar/search text as identity.
  */
-async function inspectMainChat(api, chatName, { screenshot = false, ocr } = {}) {
+async function inspectMainChat(api, chatName, { screenshot = false, ocr, lineWindows } = {}) {
   requireApi(api);
-  const lineWindows = await listLineWindows(api);
+  lineWindows ??= await listLineWindows(api);
   const visible = lineWindows.filter(isVisibleLineWindow);
   const main = await findUniqueMainChatWindow(api, visible);
   if (!main) return undefined;
@@ -1341,6 +1615,98 @@ function withoutHeaderImage(value) {
   return fingerprint;
 }
 
+/**
+ * The current LINE Desktop message list is custom-drawn, but UIA still
+ * exposes a structural right-pane body and rich composer. That gives a bounded
+ * screenshot region where a caller may visually select a message bubble. The
+ * region intentionally excludes every header, sidebar, composer, dialog, and
+ * menu surface; it is not an inferred screen ratio.
+ */
+function replySourceVisualView(state, window, guard, visual) {
+  const images = Array.isArray(state?.images) ? state.images : [];
+  if (images.length !== 1 || !images[0] || typeof images[0] !== 'object') return undefined;
+  let dimensions;
+  try {
+    dimensions = visual.imageDimensions(images[0]);
+  } catch {
+    return undefined;
+  }
+  if (!validImageDimensions(dimensions) || !matchesReportedScreenshotDimensions(state, dimensions)) return undefined;
+  const elements = Array.isArray(state?.elements) ? state.elements : [];
+  if (elements.some(element => hasMarker(element, MODAL_MARKERS)
+    || ['menu', 'menuitem', 'menu-item'].includes(normalized(element?.role)))) return undefined;
+  const bands = findMainChatBands(state);
+  if (bands.length !== 1) return undefined;
+  const band = bands[0];
+  const rootFrame = findScreenshotRootFrame(state, window, band);
+  if (!rootFrame) return undefined;
+  let composer;
+  try {
+    composer = findComposer(state, {
+      allowMainStructuralFallback: isVerifiedMainChatGuard(guard),
+      guard,
+    });
+  } catch {
+    return undefined;
+  }
+  const composerFrame = elementFrame(composer?.element);
+  if (!composerFrame || !rectInside(composerFrame, band.bodyFrame)) return undefined;
+  const bottom = composerFrame.y - 2;
+  if (bottom - band.bodyFrame.y < 40) return undefined;
+  const logicalMessageBounds = {
+    x: band.bodyFrame.x,
+    y: band.bodyFrame.y,
+    width: band.bodyFrame.width,
+    height: bottom - band.bodyFrame.y,
+  };
+  const messageBounds = frameInScreenshot(logicalMessageBounds, rootFrame, dimensions);
+  if (!messageBounds) return undefined;
+  return {
+    image: images[0],
+    dimensions,
+    imageBounds: { x: 0, y: 0, width: dimensions.width, height: dimensions.height },
+    messageBounds,
+    rootFrame,
+  };
+}
+
+async function captureReplySourceFingerprint(image, region, visual) {
+  let fingerprint;
+  try {
+    fingerprint = await visual.fingerprintRegion(image, region, { includeImage: false });
+  } catch {
+    return undefined;
+  }
+  return validReplySourceFingerprint(fingerprint, region) ? fingerprint : undefined;
+}
+
+function validReplySourceFingerprint(value, region) {
+  return !!value && typeof value === 'object'
+    && /^[a-f0-9]{64}$/u.test(value.sha256)
+    && value.width === region.width
+    && value.height === region.height
+    && sameRegion(value.region, region)
+    && value.image === undefined;
+}
+
+function sameReplySourceFingerprint(first, second) {
+  return first?.sha256 === second?.sha256
+    && first?.width === second?.width
+    && first?.height === second?.height
+    && sameRegion(first?.region, second?.region);
+}
+
+function accessibleReplyMessageCandidates(state, messageText, view) {
+  return state.elements
+    .filter(element => hasExactLabel(element, [messageText]) && hasMarker(element, MESSAGE_MARKERS))
+    .map(element => {
+      const frame = elementFrame(element);
+      const bounds = frame ? frameInScreenshot(frame, view.rootFrame, view.dimensions) : undefined;
+      return { element, bounds };
+    })
+    .filter(candidate => candidate.bounds && rectInside(candidate.bounds, view.messageBounds));
+}
+
 function findUniqueMainHeaderLabel(ocr, chatName, findLabel) {
   const direct = findUniqueOcrLabel(ocr, [chatName], findLabel);
   if (direct) return direct;
@@ -1422,20 +1788,62 @@ function isVerifiedMainChatGuard(guard) {
     || guard?.kind === 'visual-main-header-crop';
 }
 
-function createChatGuard(chatName, inspected, ocr, visual) {
+function replyChatTypeFromProof(proof) {
+  switch (proof?.kind) {
+    case 'exact-chat-pane-header':
+    case 'grounded-ocr-main-chat-header':
+      return 'direct';
+    case 'exact-chat-pane-group-header':
+    case 'grounded-ocr-main-group-chat-header':
+      return 'group';
+    case 'cached-caller-confirmed-main-header-crop':
+      return REPLY_CHAT_TYPES.includes(proof.chatType) ? proof.chatType : undefined;
+    default:
+      return undefined;
+  }
+}
+
+function assertReplySourceChatType(inspected, expectedChatType) {
+  const observedChatType = replyChatTypeFromProof(inspected?.proof);
+  if (!observedChatType) {
+    throw new LineToolError(
+      'LINE_REPLY_SOURCE_CHAT_TYPE_UNVERIFIED',
+      'LINE could not prove whether the exact named reply chat is direct or group. No reply-source action was taken.',
+    );
+  }
+  if (observedChatType !== expectedChatType) {
+    throw new LineToolError(
+      'LINE_REPLY_SOURCE_CHAT_TYPE_MISMATCH',
+      'LINE proved a different chat type for the exact named reply chat. No reply-source action was taken.',
+    );
+  }
+}
+
+function assertReplySourceChatTypeBinding(binding) {
+  if (!REPLY_CHAT_TYPES.includes(binding?.chatType) || binding.guard?.chatType !== binding.chatType) {
+    throw new LineToolError(
+      'LINE_UI_BACKEND_PROTOCOL',
+      'The reply-source token did not retain one verified direct/group chat type.',
+    );
+  }
+}
+
+function createChatGuard(chatName, inspected, ocr, visual, { expectedChatType } = {}) {
   const target = inspected?.target;
   const proofKind = inspected?.proof?.kind;
   if (!target || typeof proofKind !== 'string') {
     throw new LineToolError('LINE_UI_BACKEND_PROTOCOL', 'A verified chat result did not include a target and proof kind.');
   }
+  if (expectedChatType !== undefined) assertReplySourceChatType(inspected, expectedChatType);
+  const boundChatType = expectedChatType === undefined ? undefined : expectedChatType;
   if (proofKind === 'exact-top-level-window-title') {
-    return { kind: 'detached-title', chatName, target };
+    return { kind: 'detached-title', chatName, target, ...(boundChatType === undefined ? {} : { chatType: boundChatType }) };
   }
   if (proofKind.startsWith('exact-chat-pane-')) {
-    return { kind: 'semantic-main-header', chatName, target };
+    return { kind: 'semantic-main-header', chatName, target, ...(boundChatType === undefined ? {} : { chatType: boundChatType }) };
   }
   if (proofKind.startsWith('grounded-ocr-main-')) {
-    return { kind: 'ocr-main-header', chatName, target, window: inspected.window, ocr };
+    return { kind: 'ocr-main-header', chatName, target, window: inspected.window, ocr, ...(boundChatType === undefined ? {} : { chatType: boundChatType }) };
   }
   if (proofKind === 'cached-caller-confirmed-main-header-crop') {
     return {
@@ -1445,6 +1853,7 @@ function createChatGuard(chatName, inspected, ocr, visual) {
       window: inspected.window,
       fingerprint: inspected.fingerprint,
       visual,
+      ...(boundChatType === undefined ? {} : { chatType: boundChatType }),
     };
   }
   throw new LineToolError('LINE_UI_BACKEND_PROTOCOL', `Unsupported verified-chat proof kind ${proofKind}.`);
@@ -1460,10 +1869,11 @@ async function assertChatGuard(api, target, state, guard) {
     throw new LineToolError('LINE_CHAT_STALE', 'The selected LINE target changed before the action. No action was taken.');
   }
   if (guard.kind === 'semantic-main-header') {
-    if (findChatHeaderProof(state, guard.chatName, { requireContentHeaderBand: true })) return;
+    const proof = findChatHeaderProof(state, guard.chatName, { requireContentHeaderBand: true });
+    if (proof && (guard.chatType === undefined || replyChatTypeFromProof(proof) === guard.chatType)) return;
   } else if (guard.kind === 'ocr-main-header') {
     const proof = await findMainHeaderOcrProof(state, guard.chatName, guard.window, guard.ocr);
-    if (proof) return;
+    if (proof && (guard.chatType === undefined || replyChatTypeFromProof(proof) === guard.chatType)) return;
   } else if (guard.kind === 'visual-main-header-crop') {
     const fingerprint = await captureHeaderFingerprint(state, guard.window, guard.visual, { includeImage: false });
     if (fingerprint && sameHeaderFingerprint(guard.fingerprint, fingerprint)) return;
@@ -2572,10 +2982,45 @@ function windowIdentity(window) {
   return `${window?.pid}:${window?.window_id}`;
 }
 
-async function runMessageAction(api, inspected, chatName, messageText, action, replyText, composerConfig, ocr) {
-  const rightClick = await runUiInput(api, inspected.target, state => ({
-    element: findExactMessage(state, messageText),
-  }), 'right_click', {}, { screenshot: true, guard: composerConfig?.guard });
+async function runMessageAction(
+  api,
+  inspected,
+  chatName,
+  messageText,
+  action,
+  replyText,
+  composerConfig,
+  ocr,
+  visual,
+  replySourceBinding,
+) {
+  const replyPhase = {
+    contextMenuMayBeOpen: false,
+    actionSelected: false,
+    replyContextMayBeOpen: false,
+    draftMayBeStaged: false,
+  };
+  let rightClick;
+  try {
+    rightClick = await runUiInput(api, inspected.target, state => {
+      // Reply replaces LINE's current reply context. Check its readable
+      // composer and any accessible quote context in this authoritative
+      // pre-right-click state, before opening a menu that can change either.
+      if (action === 'reply') assertReplyCanStart(state, composerConfig);
+      return replySourceBinding
+        ? resolveVisuallyBoundReplyTarget(state, messageText, replySourceBinding, inspected.window, composerConfig?.guard, visual)
+        : { element: findExactMessage(state, messageText) };
+    }, 'right_click', {}, { screenshot: true, guard: composerConfig?.guard });
+  } catch (error) {
+    if (action === 'reply' && error?.operationMayHaveCompleted === true) {
+      replyPhase.contextMenuMayBeOpen = true;
+      throw replyActionUncertainty(error, replyPhase);
+    }
+    throw error;
+  }
+  if (action === 'reply') replyPhase.contextMenuMayBeOpen = true;
+
+  try {
 
   // The action item is resolved from a fresh state, not from the pre-menu
   // tree. A custom-drawn menu can use a pixel only after exact OCR proves it
@@ -2593,14 +3038,38 @@ async function runMessageAction(api, inspected, chatName, messageText, action, r
   // verified chat before selecting its item; do not assume its HWND stayed on
   // the same conversation while the menu was visible.
   await assertFreshChatGuard(api, inspected.target, composerConfig?.guard);
-  const selected = await runUiInput(api, menu.target, async state => menuItemTarget(
-    state,
-    ACTION_LABELS[action],
-    `${action} message action`,
-    'LINE_ACTION_UNAVAILABLE',
-    menu.proof,
-    ocr,
-  ), 'click', {}, { screenshot: true, allowTargetClosedAfter: menu.target.window_id !== inspected.target.window_id });
+  let selected;
+  try {
+    selected = await runUiInput(api, menu.target, async state => {
+      if (action === 'reply') {
+        // This is deliberately inside the menu resolver: it is the last
+        // main-chat observation before the menu-item click, including when
+        // the Qt popup lives in a detached window.
+        await assertFreshReplyCanStart(api, inspected.target, composerConfig);
+      }
+      return menuItemTarget(
+        state,
+        ACTION_LABELS[action],
+        `${action} message action`,
+        'LINE_ACTION_UNAVAILABLE',
+        menu.proof,
+        ocr,
+      );
+    }, 'click', {}, {
+      screenshot: true,
+      allowTargetClosedAfter: menu.target.window_id !== inspected.target.window_id,
+    });
+  } catch (error) {
+    if (action === 'reply' && error?.operationMayHaveCompleted === true) {
+      replyPhase.actionSelected = true;
+      replyPhase.replyContextMayBeOpen = true;
+    }
+    throw error;
+  }
+  if (action === 'reply') {
+    replyPhase.actionSelected = true;
+    replyPhase.replyContextMayBeOpen = true;
+  }
   // A detached Qt context menu can remain inspectable for one short moment
   // after its item click. Its state is never the reply/translation/forward
   // postcondition: reobserve the original chat window in that case.
@@ -2624,10 +3093,26 @@ async function runMessageAction(api, inspected, chatName, messageText, action, r
     };
   }
   if (action === 'reply') {
-    const replySurface = findReplySurface(selectedState, messageText, composerConfig);
+    let replySurface;
+    try {
+      replySurface = findReplySurface(selectedState, messageText, composerConfig);
+    } catch (error) {
+      if (replySourceBinding) {
+        return pendingVisualReplyQuoteResult(
+          chatName,
+          inspected,
+          replySourceBinding,
+          selectedState,
+          raw,
+          replyText,
+          error,
+        );
+      }
+      throw error;
+    }
     if (replyText !== undefined) {
       if (replySurface.composer.value !== '') {
-        throw new LineToolError('LINE_DRAFT_CONFLICT', 'LINE already has a reply draft; it was left unchanged.');
+        throw new LineToolError('LINE_DRAFT_CONFLICT', 'LINE reply draft changed after Reply was selected.');
       }
       const staged = await stageReplyDraft(
         api,
@@ -2636,16 +3121,21 @@ async function runMessageAction(api, inspected, chatName, messageText, action, r
         replyText,
         composerConfig,
       );
+      replyPhase.draftMayBeStaged = staged.draftMayBeStaged === true;
       raw.draft = withoutImages(staged.raw);
     }
     return {
       ...chatResult(chatName, inspected),
       action,
       staged: true,
+      sent: false,
       quoteVerified: true,
       draftStaged: replyText !== undefined,
-      verification: 'exact-reply-quote-and-composer',
+      verification: replySourceBinding
+        ? 'caller-confirmed-source-region-plus-exact-reply-quote-and-composer'
+        : 'exact-reply-quote-and-composer',
       confidence: 'high',
+      ...(replySourceBinding ? replySourceBindingResult(replySourceBinding) : {}),
       raw,
     };
   }
@@ -2683,6 +3173,11 @@ async function runMessageAction(api, inspected, chatName, messageText, action, r
     confidence: 'high',
     raw,
   };
+  } catch (error) {
+    if (action !== 'reply') throw error;
+    if (error?.details?.draftMayBeStaged === true) replyPhase.draftMayBeStaged = true;
+    throw replyActionUncertainty(error, replyPhase);
+  }
 }
 
 async function observeMainAfterAction(api, target) {
@@ -2701,6 +3196,121 @@ function findExactMessage(state, messageText) {
   const candidates = state.elements.filter(element => hasExactLabel(element, [messageText])
     && hasMarker(element, MESSAGE_MARKERS));
   return oneExactElement(candidates, 'exact LINE message', 'LINE_MESSAGE_NOT_UNIQUE');
+}
+
+async function resolveVisuallyBoundReplyTarget(
+  state,
+  messageText,
+  binding,
+  window,
+  guard,
+  visual,
+) {
+  const view = replySourceVisualView(state, window, guard, visual);
+  if (!view || !sameRegion(binding.messageBounds, view.messageBounds)) {
+    throw new LineToolError(
+      'LINE_REPLY_SOURCE_STALE',
+      'The LINE message area changed after visual source confirmation. No reply action was taken.',
+    );
+  }
+  const fingerprint = await captureReplySourceFingerprint(view.image, binding.sourceRect, visual);
+  if (!fingerprint || !sameReplySourceFingerprint(binding.fingerprint, fingerprint)) {
+    throw new LineToolError(
+      'LINE_REPLY_SOURCE_STALE',
+      'The caller-confirmed LINE source pixels changed before Reply. No reply action was taken.',
+    );
+  }
+  const accessible = selectAccessibleReplyBubble(
+    accessibleReplyMessageCandidates(state, messageText, view),
+    binding.sourcePoint,
+  );
+  return accessible ? { element: accessible } : { pixel: binding.sourcePoint };
+}
+
+function replySourceBindingResult(binding) {
+  return {
+    localSourceRef: binding.source.sourceRef,
+    uiSourceRefVerified: false,
+    sourceIdentityVerification: 'caller-confirmed-fresh-visual-source-region',
+  };
+}
+
+function pendingVisualReplyQuoteResult(chatName, inspected, binding, state, raw, replyText, error) {
+  const images = Array.isArray(state?.images) ? state.images.filter(image => image?.type === 'image') : [];
+  if (images.length !== 1) {
+    throw new LineToolError(
+      'LINE_REPLY_UNVERIFIED',
+      'LINE may have opened a reply context, but no fresh screenshot was available for visual verification. Inspect LINE before retrying.',
+      { operationMayHaveCompleted: true, previousCode: error?.code ?? error?.name ?? null },
+    );
+  }
+  return {
+    ...chatResult(chatName, inspected),
+    action: 'reply',
+    staged: false,
+    sent: false,
+    quoteVerified: false,
+    draftStaged: false,
+    operationMayHaveCompleted: true,
+    requiresVisualQuoteConfirmation: true,
+    visualQuoteVerification: {
+      sourceText: binding.source.text,
+      expectedSender: binding.source.sender,
+      expectedDate: binding.source.date,
+      expectedTime: binding.source.time,
+      replyTextNotStaged: replyText !== undefined,
+      requiredObservation: 'Inspect the newly visible quote sender and source preview before staging or retrying.',
+    },
+    verification: 'reply-action-pending-visual-quote-confirmation',
+    confidence: 'pending',
+    ...replySourceBindingResult(binding),
+    raw,
+    images,
+  };
+}
+
+function replyQuoteContexts(state) {
+  return state.elements.filter(element => hasMarker(element, QUOTE_MARKERS));
+}
+
+function assertReplyCanStart(state, composerConfig) {
+  const composer = findComposer(state, composerConfig);
+  if (composer.value !== '') {
+    throw new LineToolError(
+      'LINE_DRAFT_CONFLICT',
+      'LINE already has a nonempty draft before Reply; it was left unchanged.',
+    );
+  }
+  const quoteContexts = replyQuoteContexts(state);
+  if (quoteContexts.length !== 0) {
+    throw new LineToolError(
+      'LINE_REPLY_CONTEXT_CONFLICT',
+      'LINE already has an accessible quoted-reply context before Reply; it was left unchanged.',
+      { candidateCount: quoteContexts.length },
+    );
+  }
+  return composer;
+}
+
+async function assertFreshReplyCanStart(api, target, composerConfig) {
+  const state = await assertFreshChatGuard(api, target, composerConfig?.guard);
+  return assertReplyCanStart(state, composerConfig);
+}
+
+function replyActionUncertainty(error, phase) {
+  return new LineToolError(
+    typeof error?.code === 'string' ? error.code : 'LINE_REPLY_UNVERIFIED',
+    'LINE reply may have changed local state. Inspect LINE before retrying.',
+    {
+      ...(error?.details && typeof error.details === 'object' ? error.details : {}),
+      operationMayHaveCompleted: true,
+      contextMenuMayBeOpen: phase?.contextMenuMayBeOpen === true,
+      actionSelected: phase?.actionSelected === true,
+      replyContextMayBeOpen: phase?.replyContextMayBeOpen === true,
+      draftMayBeStaged: phase?.draftMayBeStaged === true,
+      previousCode: error?.code ?? error?.name ?? null,
+    },
+  );
 }
 
 async function verifyCopiedText(api, messageText) {
@@ -2724,8 +3334,8 @@ function clipboardText(result) {
 }
 
 function findReplySurface(state, messageText, composerConfig) {
-  const quote = state.elements.filter(element => hasExactLabel(element, [messageText])
-    && hasMarker(element, QUOTE_MARKERS));
+  const quote = replyQuoteContexts(state)
+    .filter(element => hasExactLabel(element, [messageText]));
   if (quote.length !== 1) {
     throw new LineToolError(
       'LINE_REPLY_UNVERIFIED',
@@ -2737,32 +3347,50 @@ function findReplySurface(state, messageText, composerConfig) {
 }
 
 async function stageReplyDraft(api, target, messageText, replyText, composerConfig) {
-  const staged = await runUiInput(api, target, state => {
-    const surface = findReplySurface(state, messageText, composerConfig);
-    if (surface.composer.value !== '') {
-      throw new LineToolError('LINE_DRAFT_CONFLICT', 'LINE already has a reply draft; it was left unchanged.');
-    }
-    return { element: surface.composer.element };
-  }, 'set_value', { value: replyText }, { guard: composerConfig?.guard });
+  let staged;
+  try {
+    staged = await runUiInput(api, target, state => {
+      const surface = findReplySurface(state, messageText, composerConfig);
+      if (surface.composer.value !== '') {
+        throw new LineToolError('LINE_DRAFT_CONFLICT', 'LINE reply draft changed before it could be staged.');
+      }
+      return { element: surface.composer.element };
+    }, 'set_value', { value: replyText }, { guard: composerConfig?.guard });
+  } catch (error) {
+    if (error?.operationMayHaveCompleted === true) throw replyDraftUncertainty(error);
+    throw error;
+  }
 
   let after;
   try {
     after = findReplySurface(staged.after, messageText, composerConfig);
   } catch (error) {
-    throw new LineToolError(
+    throw replyDraftUncertainty(new LineToolError(
       'LINE_REPLY_UNVERIFIED',
       'LINE reply staging did not preserve an exact quoted context and readable composer.',
-      { operationMayHaveCompleted: true, previousCode: error?.code },
-    );
+      { previousCode: error?.code },
+    ));
   }
   if (after.composer.value !== replyText) {
-    throw new LineToolError(
+    throw replyDraftUncertainty(new LineToolError(
       'LINE_DRAFT_WRITE_UNVERIFIED',
       'LINE reply composer readback did not equal the requested staged reply.',
-      { operationMayHaveCompleted: true },
-    );
+    ));
   }
-  return { raw: staged.result };
+  return { raw: staged.result, draftMayBeStaged: true };
+}
+
+function replyDraftUncertainty(error) {
+  return new LineToolError(
+    typeof error?.code === 'string' ? error.code : 'LINE_REPLY_UNVERIFIED',
+    'LINE may have staged a reply draft but it could not be verified. Inspect LINE before retrying.',
+    {
+      ...(error?.details && typeof error.details === 'object' ? error.details : {}),
+      operationMayHaveCompleted: true,
+      draftMayBeStaged: true,
+      previousCode: error?.code ?? error?.name ?? null,
+    },
+  );
 }
 
 function findTranslationSurface(state) {

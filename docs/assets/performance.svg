@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="400" viewBox="0 0 1200 400" role="img" aria-labelledby="title desc">
+<title id="title">Measured text-history reading time on the maintainer's Windows machine</title>
+<desc id="desc">Cold reader core: earlier 17.866 seconds, optimized 4.661 seconds. Separate warm persistent MCP samples: 0.732 to 0.803 seconds. Image decoding and AI model time are additional.</desc>
+<rect width="1200" height="400" rx="20" fill="#f3faf6"/>
+<g font-family="Segoe UI, Arial, sans-serif" fill="#163d2d">
+<text x="32" y="42" font-size="25" font-weight="700">Faster reads. Measured, not promised.</text>
+<text x="32" y="73" font-size="17" fill="#5d7969">Same-machine text-history samples · cold Python core</text>
+<text x="32" y="124" font-size="17">Earlier local reader</text>
+<rect x="32" y="138" width="626" height="43" rx="7" fill="#9fb7ab"/>
+<text x="675" y="167" font-size="24" font-weight="700">17.866 s</text>
+<text x="32" y="221" font-size="17">Optimized local reader</text>
+<rect x="32" y="235" width="163.3" height="43" rx="7" fill="#19a960"/>
+<text x="213" y="264" font-size="24" font-weight="700">4.661 s</text>
+<rect x="840" y="100" width="328" height="189" rx="16" fill="#176b47"/>
+<text x="862" y="136" font-size="18" fill="#d3f0df">Separate warm MCP samples</text>
+<text x="862" y="191" font-size="32" font-weight="700" fill="#ffffff">0.732–0.803 s</text>
+<text x="862" y="229" font-size="16" fill="#d3f0df">Persistent connection</text>
+<text x="862" y="256" font-size="16" fill="#d3f0df">Fresh snapshot on every read</text>
+<text x="32" y="329" font-size="16" fill="#5d7969">Image decoding, model processing, client routing and GUI actions add time.</text>
+<text x="32" y="357" font-size="16" fill="#5d7969">Results vary with LINE process memory, cache state, query scope and the computer.</text>
+</g></svg>

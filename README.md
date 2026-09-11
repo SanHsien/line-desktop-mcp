@@ -1,145 +1,93 @@
-<p align="center">
-  <img src="docs/assets/line-mcp-cover.png" alt="LINE Desktop MCP — Windows Community Edition；24 個工具，涵蓋讀取、搜尋、發送、草稿與匯出" width="100%">
-</p>
+<p align="center"><img src="docs/assets/line-agent-cover.png" alt="LINE Agent MCP v2.0.0 — Text + images. Context, faster." width="100%"></p>
 
-<h1 align="center">Codex × LINE Desktop</h1>
+# LINE Agent MCP
 
-<p align="center">用 Codex 讀取聊天、搜尋訊息、發送回覆、管理草稿。<br>LINE Desktop MCP · Windows 社群版</p>
+**整理 LINE 上下文，連圖片一起看；快速讀取，把時間留給判斷與回覆。**
 
-<p align="center">
-  <img alt="Windows community edition" src="https://img.shields.io/badge/Windows-Community_Edition-16a34a">
-  <img alt="24 MCP tools when enabled" src="https://img.shields.io/badge/MCP-24_tools-111827">
-  <a href="LICENSE.md"><img alt="MIT License" src="https://img.shields.io/badge/License-MIT-2563eb"></a>
-</p>
+指定聊天室與日期，讓 AI 一起整理文字和可用的快取圖片，掌握進度、附件線索與待辦。圖片由 MCP 提供給支援影像的模型判讀；縮圖、原圖和缺失狀態都有標示。
 
-<p align="center">
-  <a href="docs/quickstart-windows.md">開始使用</a> ·
-  <a href="https://github.com/bensonmaxai/line-desktop-mcp/releases/tag/v1.2.0">下載 v1.2.0</a> ·
-  <a href="docs/features.md">功能介紹</a> ·
-  <a href="docs/windows-extensions.md">工具與驗證細節</a> ·
-  <a href="docs/README.en.md">English</a>
-</p>
+[繁體中文](README.md) · [English](docs/README.en.md) · [日本語](docs/README.ja.md) · [ภาษาไทย](docs/README.th.md) · [Bahasa Indonesia](docs/README.id.md)
 
----
+[下載 v2.0.0](https://github.com/bensonmaxai/line-desktop-mcp/releases/tag/v2.0.0) · [五語更新說明](docs/releases/README.md) · [安裝指南](docs/quickstart-windows.md) · [工具與限制](docs/windows-extensions.md)
 
-這是我們搭配 **Codex** 在本機持續使用、整理後公開分享的 Windows 社群版。透過已登入的 LINE Desktop 與 MCP，讓 Codex 協助讀取指定聊天室、搜尋訊息、發送回覆、管理草稿與匯出工作紀錄。
+這是 **LINE Agent MCP**，由 [bensonmaxai](https://github.com/bensonmaxai/line-desktop-mcp) 維護的 Windows 社群版，建立在 [dtwang/line-desktop-mcp](https://github.com/dtwang/line-desktop-mcp) 之上。透過本機 MCP 連接已登入的 LINE Desktop，日常以 Codex 使用，也能搭配其他支援本機 MCP 的客戶端。本專案與 LINE 官方無關。
 
-專案由 [bensonmaxai](https://github.com/bensonmaxai/line-desktop-mcp) 維護，透過桌面介面操作 LINE。其他支援本機 MCP 的客戶端也能串接；我們的日常工作流程與介紹以 Codex 為主。
+Windows 啟用 `LINE_MCP_EXTENSIONS=1` 後提供 **29 個工具**。未啟用時保留原本 **5 個工具**；macOS 也維持原本介面。
 
-Windows 設定 `LINE_MCP_EXTENSIONS=1` 後，可使用 **24 個工具**。預設保留原本的 **5 個工具**；macOS 也維持原本介面。介面操作工具需要另外設定相容的 CUA Driver。
+## v2.0 可以做什麼
 
-**從整理訊息到發送回覆，可直接送出，也可先保留草稿。** 想知道各工具的用途與操作例子，可以直接看[完整功能介紹](docs/features.md)。
-
-## 可以拿來做什麼
-
-| 工作 | 這次擴充提供的能力 |
+| 工作 | v2.0.0 的能力 |
 | --- | --- |
-| 整理近期聊天 | 將 LINE 已載入的聊天記錄整理成結構化資料，依日期與筆數篩選 |
-| 找出需要的訊息 | 在本次讀取範圍內，以文字、發話者或日期搜尋；未知欄位會保留警示 |
-| 保存工作紀錄 | 匯出 TXT、JSON、CSV，檢查新檔寫入與 SHA-256；保護既有檔案 |
-| 發送訊息 | 向指定聊天室發送完整文字，保留多行與 Unicode 內容；也能改用草稿模式 |
-| 準備回覆 | 讀取、寫入、讀回與清除草稿，避免覆蓋使用者已修改的內容 |
-| 訊息回覆與轉傳 | 準備引用回覆、複製或翻譯指定訊息、開啟轉傳對象選擇；送出前保留確認步驟 |
-| 串接介面操作 | 觀察指定聊天室、開啟搜尋、記事本、相簿、投票、媒體、檔案、連結等面板；依該客戶端可辨識的控制項操作 |
+| 追蹤進度 | 從指定群組或個人對話的本機 DB/WAL 讀取文字與附件資訊；一次最多 31 天，可分頁追查 |
+| 看圖理解上下文 | 需要時才解碼快取圖片；回傳可供模型讀取的圖片區塊，縮圖與原圖、缺失與延後處理都有標示 |
+| 減少等待 | 已驗證的工作階段使用短期定位資訊加速；每次仍重新擷取並驗證資料 |
+| 準備可靠回覆 | 引用回覆須核對原文、發話者、時間與目前畫面，使用一次性的來源確認 token |
+| 看投票進度 | 讀取已開啟、且已與指定群組核對的投票面板；未觀察到的欄位保留未知 |
+| 版本變動時停止誤讀 | 讀取前檢查 LINE 執行檔版本與雜湊；未驗證版本回報 `LINE_BUILD_UNVERIFIED` |
+| 讓工作留在同一個對話 | 由 agent 查資料、整理與操作 LINE；普通文字草稿在 Codex 確認後送出，不必另開工作台 |
 
-例如，你可以直接對 Codex 說「整理指定聊天室近期十則訊息，列出需要回覆的事項」，再接著要求它整理回覆、發送文字或匯出紀錄。
+## 一段對話，完成整個流程
 
-## 回覆流程
+![LINE 工作流程：讀取對話、整理進度、確認草稿、送出、讀回核對](docs/assets/workflow-zh-TW.svg)
 
-<p align="center">
-  <img src="docs/assets/line-mcp-workflow.png" alt="流程示意：讀取指定聊天室近期上下文、整理回覆、發送訊息；支援直接發送與先保留草稿" width="620">
-</p>
+例如：「看一下 LINE 的『範例客戶』，整理目前進度與待回覆事項。」Agent 先讀指定範圍，必要時使用你另行提供或授權的文件與連接器補充資料，再在 Codex 顯示完整草稿。你確認收件人與內容後，才進行送出與讀回核對。
 
-支援兩種方式：`send_message_auto` 直接發送指定文字；`send_message_manual` 先放入 LINE 輸入框保留為草稿。你可以依需求選擇，把近期聊天讀取、回覆整理與訊息發送串成自己的流程。
+`send_message_auto` 可送出已核准的普通文字。`send_message_manual` 僅在你要求於 LINE 檢閱時暫存草稿。真正的藍色提及、引用選取、投票建立等視覺步驟由 agent 操作；工具計畫本身不代表已送出或已發布。
 
-## 開始使用
-
-先準備已登入的 Windows LINE Desktop、Node.js 與 AutoHotkey v2。UI 工具另需 CUA Driver；前置作業與 MCP 設定見 [Windows 安裝指南](docs/quickstart-windows.md)。
-
-使用固定版本取得程式：
+## 安裝與升級
 
 ```powershell
-git clone --branch v1.2.0 --depth 1 https://github.com/bensonmaxai/line-desktop-mcp.git
+git clone --branch v2.0.0 --depth 1 https://github.com/bensonmaxai/line-desktop-mcp.git
 cd line-desktop-mcp
-npm install --ignore-scripts
+npm ci --ignore-scripts
 ```
 
-用 Codex CLI 加入這個 MCP server，啟用擴充並填入自己的 CUA 執行檔路徑：
+依使用功能準備不同依賴：
 
-```powershell
-codex mcp add line-desktop-mcp --env LINE_MCP_EXTENSIONS=1 --env LINE_MCP_CUA_DRIVER=C:/Tools/cua-driver/cua-driver.exe -- node C:/Tools/line-desktop-mcp/src/server.js
-codex mcp get line-desktop-mcp
-```
-
-以上路徑是範例，請換成自己的絕對路徑。讓 Codex 重新連線後，先呼叫 `get_line_capabilities` 查看 24 個工具與能力說明；這個查詢不會讀取聊天內容。其他 MCP 客戶端的 JSON 設定也列在安裝指南。
-
-也可以下載 [GitHub Release 的 npm tarball](https://github.com/bensonmaxai/line-desktop-mcp/releases/tag/v1.2.0)。本社群版本透過 GitHub 發布；`npx line-desktop-mcp@latest` 仍指向原作者的 npm 套件，既有 MCPB 也不會自動安裝這個版本。
-
-## 維護與驗證
-
-| 層次 | 證據與範圍 |
+| 功能 | 需要的執行環境 |
 | --- | --- |
-| 自動測試 | `npm test`：93 項通過，涵蓋協定相容性、篩選／匯出、草稿與視窗保護、AHK 產生、跨程序鎖與無互動啟動 |
-| 實際封裝 | npm tarball 乾淨安裝後，透過真正的 stdio 入口確認預設 5 個工具、啟用後 24 個工具 |
-| 日常使用 | 維護者已在本機持續使用聊天讀取與訊息發送流程 |
-| 本輪擴充驗證 | 近期記錄、日期／文字搜尋、精確文字存在、匯出，以及多行草稿寫入／讀回／清除；搜尋面板開啟與狀態確認 |
-| 測試環境 | Node.js 24.16.0、Windows LINE 26.4.2.3957、CUA Driver 0.23.2；其他版本須自行確認相容性 |
+| 啟動／能力清單 | Node.js 24 LTS 或更新版本；本版測試使用 24.19.0 |
+| 本機對話讀取 | Windows x64、已登入且版本在允許清單內的 LINE、Python x64、`cryptography`、Pillow、固定雜湊的 SQLite3MC DLL |
+| 圖片預覽 | 使用上述讀取環境，由 Pillow 解碼 |
+| 介面操作／傳送 | 相容的 CUA Driver；依路徑使用 AutoHotkey v2 與 Windows 本機 OCR |
 
-<details>
-<summary>客戶端相容性與本次驗證範圍</summary>
+本機讀取必須明確設定 `LINE_MCP_PYTHON` 與 `LINE_MCP_SQLITE3MC_DLL`；介面操作使用 `LINE_MCP_CUA_DRIVER`。伺服器啟動不會自行安裝依賴、讀取聊天或修改全域設定。完整步驟、固定 DLL 來源與 MCP 設定見[安裝指南](docs/quickstart-windows.md)。
 
-- 記錄讀取限於 LINE 當下已載入的內容，匯出檔案不能還原成 LINE 帳號備份。
-- 小字與自繪選單可能無法穩定辨識。投票、記事本等面板仍可能回傳無法確認，不會猜座標繼續操作。
-- 引用回覆、複製、翻譯、轉傳與附件工具，尚未完成所有客戶端的實機驗證。
-- 真實藍色提及、成員名單、表情回應、收回、通話與群組共用內容建立，目前保留為需視覺操作的流程。
-- 本輪新增擴充的測試範圍另外列在技術文件；macOS 維持原介面，這輪只做協定相容性測試。
+**原 v1.2.0 使用者可沿同一個專案升級。** v2.0.0 保留 MCP 名稱與原本 5 個工具；新增本機讀取依賴，引用回覆改用完整 `source` 與一次性 `sourceToken`。更新後重新連線並刷新工具 schema。LINE 帳號與聊天資料不需搬移。[升級與回退指南](docs/MIGRATING.md)
 
-詳見 [完整驗證紀錄與行為界線](docs/windows-extensions.md#live-verification-and-remaining-limits)。
+本專案透過 GitHub 原始碼 tag 與 `.tgz` 發布，未發布至 npm registry，也未提供 MCPB。舊套件 `line-desktop-mcp@latest` 不會安裝本專案。
 
-</details>
+## 速度與驗證
 
-## 24 個工具
+![本機核心讀取實測比較](docs/assets/performance.svg)
 
-<details>
-<summary>展開工具清單</summary>
+同一台維護者電腦上，文字歷史的冷讀核心由 **17.866 秒降至 4.661 秒**；重啟驗收後，持續 MCP 連線的暖讀約 **0.732–0.803 秒**。圖片解碼、Codex 路由、模型處理及介面操作還會增加時間，這些數字不是所有電腦的速度保證。
 
-| 類別 | 工具 |
-| --- | --- |
-| 記錄與搜尋 | `get_line_chatroom_history_short`、`get_line_chatroom_history_default`、`get_line_chatroom_history_long`、`get_line_chat_messages`、`search_line_chat_messages`、`verify_line_message`、`export_line_chat_history` |
-| 能力與觀察 | `get_line_capabilities`、`get_line_workflow`、`get_line_status`、`open_line_chat`、`get_line_ui_state`、`confirm_line_chat_view` |
-| 草稿與傳送 | `get_line_draft`、`set_line_draft`、`clear_line_draft`、`send_message_manual`、`send_message_auto`、`send_file_manual` |
-| 介面與訊息操作 | `open_line_chat_feature`、`stage_line_reply`、`copy_line_message`、`translate_line_message`、`stage_line_forward` |
-
-`get_line_workflow` 只提供操作指引，不會自行執行。`verify_line_message` 僅確認指定範圍內存在相同文字，不能證明剛才成功送達。附件工具只填入檔案選擇視窗；按下「開啟」才跨入實際傳送步驟。
-
-</details>
-
-## 它如何運作
-
-```mermaid
-flowchart LR
-    A[Codex] --> B[LINE Desktop MCP]
-    B --> C[AutoHotkey：有範圍的記錄讀取]
-    B --> D[CUA Driver：視窗與介面操作]
-    D --> E[Windows 本機 OCR]
-    C --> F[已登入的 LINE Desktop]
-    D --> F
-```
-
-橋接程式的 OCR 在本機執行，不使用雲端 OCR。AI 客戶端如何處理工具回傳內容，取決於你所使用的客戶端與模型設定。
-
-## 開發與回報
+兩次實際 LINE 重啟後均成功讀取指定範圍；實際圖片已通過 MCP 傳輸、獨立解碼與雜湊核對。引用回覆、真實提及、投票與普通文字傳送有各自的實測紀錄，不能互相替代驗證。[詳細驗證範圍](docs/windows-extensions.md#verification)
 
 ```powershell
 npm test
+npm run test:python
 ```
 
-測試使用合成訊息與模擬介面，不會讀取真實聊天室或送訊息。Windows OCR 測試使用本機產生的圖片。
+測試使用合成訊息與模擬介面，不會讀取真實聊天室或送出訊息。Python 測試需要先設定指定執行環境。
 
-歡迎透過 [Issues](https://github.com/bensonmaxai/line-desktop-mcp/issues) 回報問題，附上作業系統、LINE／Node／CUA 版本、工具名稱和去識別化錯誤資訊即可。請不要放入真實聊天內容或帳號資料。
+## 使用界線
 
-## 致謝與授權
+- 本機快取不等於完整伺服器歷史；讀取範圍、快照時間、缺失媒體與分頁都會明示。
+- 日期篩選與投票計畫目前固定採 **Asia/Taipei（UTC+08:00）**。
+- 本機讀取需要對已登入 LINE 程序進行受限的唯讀記憶體存取，以取得該工作階段的解碼資料；未知版本或存取遭拒時停止。
+- 目前實測 Windows LINE **26.4.2.3957，繁體中文介面**；五語文件不代表五種 LINE UI 語言都已通過實機驗證。
+- 支援 PNG/JPEG、GIF/WebP 首幀及小型 PCM WAV 區塊；其他已辨識的音訊、影片與檔案以資訊回傳，沒有通用播放、轉錄或檔案擷取功能。
+- 文字存在不等於對方收到或已讀；提及通知需另外核對真實藍色 token。傳送結果不確定時不自動重送。
+- 解碼與 OCR 在本機執行；回傳的工具內容仍由你的 AI 客戶端及模型依其設定處理。
 
-原始專案由 [Geoffrey Wang（dtwang）](https://github.com/dtwang/line-desktop-mcp) 開發。本 fork 由 [bensonmaxai](https://github.com/bensonmaxai) 維護 Windows 擴充與發布文件；核心擴充已回饋至 [upstream PR #4](https://github.com/dtwang/line-desktop-mcp/pull/4)。
+## 語言、貢獻與授權
 
-採用 [MIT License](LICENSE.md)，保留原作者著作權聲明。本專案與 LINE 官方無關。README 圖片為 AI 生成的功能示意，並非 LINE 實際介面截圖或官方素材。
+繁中、日文、泰文與印尼文對應這次官方資料涵蓋的市場，英文作為共通版本。[語言選擇與官方來源](docs/LANGUAGES.md)
+
+問題請回報至 [Issues](https://github.com/bensonmaxai/line-desktop-mcp/issues)，附版本、工具名稱與去識別化錯誤；請勿張貼真實聊天、帳號或解碼資料。採 [MIT License](LICENSE.md)，保留原作者 Geoffrey Wang 的署名。[第三方依賴與素材](docs/THIRD_PARTY.md)
+
+封面為 AI 生成的概念插圖，流程與速度圖為程式繪製，均非 LINE 官方素材或真實聊天截圖。
+
+本版僅提供本機 stdio 連線；不提供 HTTP／REST 服務，也不會自動載入啟動目錄的 `.env`。請透過 MCP 客戶端明確設定環境變數。

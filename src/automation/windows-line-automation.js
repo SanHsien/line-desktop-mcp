@@ -1,5 +1,5 @@
 // src/automation/windows-line-automation.js
-import { exec, execSync } from 'child_process';
+import { execFile, execFileSync } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs/promises';
 import path from 'path';
@@ -7,7 +7,17 @@ import os from 'os';
 import iconv from 'iconv-lite';
 import chardet from 'chardet';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
+
+export function configuredAutoHotkeyPath(value,
+  programFiles = process.env.ProgramFiles ?? process.env.PROGRAMFILES) {
+  const candidate = value === undefined && typeof programFiles === 'string' && path.isAbsolute(programFiles)
+    ? path.join(programFiles, 'AutoHotkey', 'v2', 'AutoHotkey64.exe') : value;
+  if (typeof candidate !== 'string' || !candidate || candidate !== candidate.trim()
+      || candidate.includes('\0') || !path.isAbsolute(candidate)
+      || path.extname(candidate).toLowerCase() !== '.exe') return null;
+  return candidate;
+}
 
 // CODEX_LINE_AHK_UTF8_DECODER_V1
 // AHK is configured to emit UTF-8-RAW. Only use charset detection after a
@@ -230,7 +240,8 @@ export class WindowsLineAutomation {
     this.delayMid = 600; // for short data loading
     this.delayMidLong = 1200; // for mid data loading
     this.delayLong = 3000; // for long data loading
-    this.ahkPath = 'autohotkey'; // Assume AutoHotkey v2 is in PATH
+    this.ahkPath = configuredAutoHotkeyPath(process.env.LINE_MCP_AUTOHOTKEY);
+    this.executeFile = execFileAsync;
   }
 
   /**
@@ -239,7 +250,12 @@ export class WindowsLineAutomation {
    * @returns {Promise<string>} The stdout from the script execution.
    */
   async runAhk(script) {
-    const scriptPath = path.join(os.tmpdir(), `line-automation-${Date.now()}.ahk`);
+    const executable = configuredAutoHotkeyPath(this.ahkPath);
+    if (!executable || !(await fs.stat(executable).catch(() => null))?.isFile()) {
+      throw new Error('Configure LINE_MCP_AUTOHOTKEY with an absolute AutoHotkey v2 executable, or install v2 in its standard Program Files location.');
+    }
+    const scriptDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'line-mcp-ahk-'));
+    const scriptPath = path.join(scriptDirectory, 'operation.ahk');
     // Prepend necessary AHK settings
     const fullScript = `#SingleInstance force
 #Requires AutoHotkey v2.0
@@ -258,17 +274,15 @@ SetTitleMatchMode 2
 FileEncoding "UTF-8-RAW"
 ${script}
 `;
-    await fs.writeFile(scriptPath, fullScript);
-
     try {
+      await fs.writeFile(scriptPath, fullScript, { flag: 'wx' });
       // Use buffer encoding to handle raw bytes
-      const { stdout, stderr } = await execAsync(`"${this.ahkPath}" "${scriptPath}"`, {
-        encoding: 'buffer'
+      const { stdout, stderr } = await this.executeFile(executable, [scriptPath], {
+        encoding: 'buffer', shell: false, windowsHide: true
       });
       
       if (stderr && stderr.length > 0) {
-        const stderrText = decodeAhkOutput(stderr, 'stderr');
-        console.error(`AHK Script Error: ${stderrText}`);
+        console.error('AHK helper reported diagnostics.');
       }
       if (!stdout || stdout.length === 0) {
         return '';
@@ -284,10 +298,11 @@ ${script}
         if (ahkGuardCode) ahkError.code = ahkGuardCode;
         throw ahkError;
       }
-      console.error(`Failed to execute AHK script: ${error.message}`);
-      throw new Error(`AHK execution failed. Is AutoHotkey v2 installed and in your PATH?`);
+      console.error('AHK helper execution failed.');
+      throw new Error('AHK execution failed. Verify the configured AutoHotkey v2 executable.');
     } finally {
-      await fs.unlink(scriptPath); // Clean up the temp file
+      await fs.unlink(scriptPath).catch(error => { if (error.code !== 'ENOENT') throw error; });
+      await fs.rmdir(scriptDirectory); // Remove only this now-empty owned directory.
     }
   }
 
@@ -300,7 +315,10 @@ ${script}
 
   async isLineRunning() {
     try {
-      const result = execSync('tasklist /FI "IMAGENAME eq LINE.exe"', { encoding: 'utf8' });
+      const systemRoot = process.env.SystemRoot ?? process.env.SYSTEMROOT;
+      if (typeof systemRoot !== 'string' || !path.isAbsolute(systemRoot)) return false;
+      const result = execFileSync(path.join(systemRoot, 'System32', 'tasklist.exe'),
+        ['/FI', 'IMAGENAME eq LINE.exe'], { encoding: 'utf8', shell: false, windowsHide: true });
       return result.toLowerCase().includes('line.exe');
     } catch (error) {
       // tasklist throws an error if no process is found

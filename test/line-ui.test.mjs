@@ -1,10 +1,9 @@
 import assert from 'node:assert/strict';
-import path from 'node:path';
 import test from 'node:test';
 
 import { LineUi } from '../src/extensions/line-ui.mjs';
 
-const CHAT = 'Example Test Chat';
+const CHAT = '測試♋️';
 const TARGET = {
   app_name: 'LINE.exe',
   title: 'LINE',
@@ -52,10 +51,64 @@ function message(text, index = 3) {
   return element(index, { label: text, semantic_role: 'message', role: 'Text' });
 }
 
+function quote(text, index = 4) {
+  return element(index, { label: text, semantic_role: 'reply-quote', role: 'Text' });
+}
+
 function state(elements, suffix = '') {
   return {
     snapshot_id: `snapshot-${suffix}`,
     elements,
+  };
+}
+
+function replySourceVisualState({
+  text,
+  chatType = 'direct',
+  chatLabel,
+  hash = 'a',
+  suffix = '',
+  includeMessage = false,
+  duplicateMessage = false,
+  includeQuote = false,
+  menu,
+  draft = '',
+} = {}) {
+  const elements = [
+    element(0, { role: 'Window', frame: { x: 0, y: 0, w: 400, h: 600 } }),
+    element(40, { role: 'Group', parent_index: 0, frame: { x: 100, y: 0, w: 300, h: 600 } }),
+    element(41, { role: 'Group', parent_index: 40, frame: { x: 100, y: 0, w: 300, h: 50 } }),
+    element(1, { label: chatLabel ?? (chatType === 'group' ? `${CHAT} (2)` : CHAT), role: 'Header', parent_index: 41, frame: { x: 110, y: 10, w: 80, h: 19 } }),
+    element(42, { role: 'Group', parent_index: 40, frame: { x: 100, y: 50, w: 300, h: 550 } }),
+    element(2, { role: 'Edit', semantic_role: 'composer', parent_index: 42, frame: { x: 110, y: 500, w: 280, h: 60 }, value: draft }),
+    element(5, { role: 'Group', label: 'qt_scrollarea_viewport', parent_index: 2, frame: { x: 110, y: 500, w: 280, h: 60 } }),
+  ];
+  if (includeMessage) {
+    elements.push(element(3, {
+      label: text,
+      semantic_role: 'message',
+      role: 'Text',
+      parent_index: 42,
+      frame: { x: 160, y: 180, w: 140, h: 72 },
+    }));
+  }
+  if (duplicateMessage) {
+    elements.push(element(4, {
+      label: text,
+      semantic_role: 'message',
+      role: 'Text',
+      parent_index: 42,
+      frame: { x: 180, y: 190, w: 120, h: 72 },
+    }));
+  }
+  if (includeQuote) elements.push(quote(text, 6));
+  if (menu) elements.push(element(8, { label: menu, role: 'MenuItem' }));
+  return {
+    ...state(elements, suffix),
+    mainStructure: false,
+    images: [visualImage(hash)],
+    screenshot_width: 400,
+    screenshot_height: 600,
   };
 }
 
@@ -334,7 +387,7 @@ test('does not treat a sidebar or global-search hit as an active chat header', a
   assert.deepEqual(automationCalls, ['activate', ['select', CHAT]]);
   assert.deepEqual(locks, ['ui-open-chat']);
   assert.deepEqual(calls.map(call => call.name), [
-    'list_windows', 'list_windows', 'get_window_state', 'get_window_state',
+    'list_windows', 'get_window_state', 'get_window_state',
     'list_windows', 'get_window_state', 'get_window_state',
   ]);
 });
@@ -428,7 +481,7 @@ test('setDraft uses snapshot-bound background set_value and verifies the full re
   assert.equal(calls.some(call => call.name === 'press_key'), false);
   assert.deepEqual(locks, ['ui-set-draft']);
   assert.deepEqual(calls.map(call => call.name), [
-    'list_windows', 'list_windows', 'get_window_state', 'get_window_state', 'get_window_state', 'set_value', 'get_window_state',
+    'list_windows', 'get_window_state', 'get_window_state', 'get_window_state', 'set_value', 'get_window_state',
   ]);
 });
 
@@ -465,7 +518,7 @@ test('a CUA write failure stops without an ungrounded follow-up action', async (
 
   await assert.rejects(ui.setDraft({ chatName: CHAT, message: 'will not retry' }), error => error === expected);
   assert.deepEqual(calls.map(call => call.name), [
-    'list_windows', 'list_windows', 'get_window_state', 'get_window_state', 'get_window_state', 'set_value',
+    'list_windows', 'get_window_state', 'get_window_state', 'get_window_state', 'set_value',
   ]);
 });
 
@@ -511,7 +564,7 @@ test('copy verifies the clipboard after a fresh exact context-menu action', asyn
   const result = await ui.messageAction({ chatName: CHAT, messageText: text, action: 'copy' });
   assert.equal(result.clipboardVerified, true);
   assert.deepEqual(calls.map(call => call.name), [
-    'list_windows', 'list_windows', 'get_window_state', 'get_window_state', 'right_click', 'get_window_state',
+    'list_windows', 'get_window_state', 'get_window_state', 'right_click', 'get_window_state',
     'get_window_state', 'get_window_state', 'click', 'get_window_state', 'clipboard_read',
   ]);
   for (const call of actionCalls(calls).filter(call => ['right_click', 'click'].includes(call.name))) {
@@ -520,7 +573,481 @@ test('copy verifies the clipboard after a fresh exact context-menu action', asyn
   }
 });
 
-test('reply stops before staging replyText when quoted context is not verified', async () => {
+test('a caller-confirmed visual source binds one custom-drawn reply point and preserves the local sourceRef limitation', async () => {
+  const text = '完整引用來源';
+  const replyText = '只暫存，不送出';
+  const source = {
+    sourceRef: 'message:0123456789abcdef01234567',
+    text,
+    sender: '測試員',
+    date: '2026-09-11',
+    time: '10:22:33',
+  };
+  const sourceRect = { x: 160, y: 180, width: 140, height: 72 };
+  const sourcePoint = { x: 220, y: 214 };
+  const visual = (suffix, options = {}) => replySourceVisualState({ text, hash: 'a', suffix, ...options });
+  const { ui, calls } = fakeEnvironment({
+    states: [
+      visual('source-inspect'),
+      visual('source-capture'),
+      visual('source-confirm-window'),
+      visual('source-confirm-fresh'),
+      visual('reply-inspect'),
+      visual('reply-before'),
+      visual('reply-after-menu', { menu: 'Reply' }),
+      visual('reply-guard', { menu: 'Reply' }),
+      visual('reply-menu-before', { menu: 'Reply' }),
+      visual('reply-fresh-main', { menu: 'Reply' }),
+      visual('reply-after', { includeQuote: true }),
+      visual('draft-before', { includeQuote: true }),
+      visual('draft-after', { includeQuote: true, draft: replyText }),
+    ],
+    ...visualHelpers(),
+  });
+
+  const pending = await ui.getReplySourceTarget({ chatName: CHAT, chatType: 'direct', source });
+  assert.equal(pending.localSourceRef, source.sourceRef);
+  assert.equal(pending.uiSourceRefVerified, false);
+  assert.equal(pending.images.length, 1);
+  const confirmed = await ui.confirmReplySourceTarget({
+    chatName: CHAT,
+    token: pending.replySourceTarget.token,
+    observedSource: source,
+    sourceRect,
+    sourcePoint,
+  });
+  assert.equal(confirmed.sourceIdentityVerification, 'caller-confirmed-fresh-visual-source-region');
+  assert.equal(confirmed.uiSourceRefVerified, false);
+
+  const result = await ui.messageAction({
+    chatName: CHAT,
+    messageText: text,
+    action: 'reply',
+    replyText,
+    source,
+    sourceToken: confirmed.replySourceTarget.token,
+  });
+  const rightClick = calls.find(call => call.name === 'right_click');
+  assert.equal(result.quoteVerified, true);
+  assert.equal(result.draftStaged, true);
+  assert.equal(result.localSourceRef, source.sourceRef);
+  assert.equal(result.uiSourceRefVerified, false);
+  assert.equal(result.sourceIdentityVerification, 'caller-confirmed-fresh-visual-source-region');
+  assert.equal(rightClick.args.x, sourcePoint.x);
+  assert.equal(rightClick.args.y, sourcePoint.y);
+  assert.equal('element_token' in rightClick.args, false);
+});
+
+test('reply source refuses an unproven or opposite direct/group chat before name-only navigation', async () => {
+  const source = {
+    sourceRef: 'message:0123456789abcdef01234567',
+    text: '完整引用來源',
+    sender: '測試員',
+    date: '2026-09-11',
+    time: '10:22:33',
+  };
+  for (const [expectedChatType, observedChatType] of [['direct', 'group'], ['group', 'direct']]) {
+    const { ui, calls, automationCalls } = fakeEnvironment({
+      states: [replySourceVisualState({ text: source.text, chatType: observedChatType, suffix: `${expectedChatType}-wrong-kind` })],
+    });
+    await assert.rejects(
+      ui.getReplySourceTarget({ chatName: CHAT, chatType: expectedChatType, source }),
+      { code: 'LINE_REPLY_SOURCE_CHAT_TYPE_MISMATCH' },
+    );
+    assert.deepEqual(automationCalls, []);
+    assert.equal(calls.some(call => ['right_click', 'click', 'set_value'].includes(call.name)), false);
+  }
+
+  const detached = { ...TARGET, title: CHAT, window_id: 100 };
+  const { ui, calls, automationCalls } = fakeEnvironment({
+    windows: [detached],
+    states: [state([], 'detached-kind-unknown')],
+  });
+  await assert.rejects(
+    ui.getReplySourceTarget({ chatName: CHAT, chatType: 'direct', source }),
+    { code: 'LINE_REPLY_SOURCE_CHAT_TYPE_UNVERIFIED' },
+  );
+  assert.deepEqual(automationCalls, []);
+  assert.equal(calls.some(call => ['right_click', 'click', 'set_value'].includes(call.name)), false);
+});
+
+test('a type-bound reply source token rejects same-name direct/group flips before right-click', async () => {
+  const source = {
+    sourceRef: 'message:0123456789abcdef01234567',
+    text: '完整引用來源',
+    sender: '測試員',
+    date: '2026-09-11',
+    time: '10:22:33',
+  };
+  const sourceRect = { x: 160, y: 180, width: 140, height: 72 };
+  const sourcePoint = { x: 220, y: 214 };
+  for (const [chatType, changedChatType] of [['direct', 'group'], ['group', 'direct']]) {
+    const view = (suffix, type) => replySourceVisualState({ text: source.text, chatType: type, hash: 'a', suffix });
+    const { ui, calls } = fakeEnvironment({
+      states: [
+        view(`${chatType}-source-inspect`, chatType),
+        view(`${chatType}-source-capture`, chatType),
+        view(`${chatType}-confirm-window`, chatType),
+        view(`${chatType}-confirm-fresh`, chatType),
+        view(`${chatType}-changed-before-stage`, changedChatType),
+      ],
+      ...visualHelpers(),
+    });
+    const pending = await ui.getReplySourceTarget({ chatName: CHAT, chatType, source });
+    await ui.confirmReplySourceTarget({
+      chatName: CHAT,
+      token: pending.replySourceTarget.token,
+      observedSource: source,
+      sourceRect,
+      sourcePoint,
+    });
+    await assert.rejects(
+      ui.messageAction({
+        chatName: CHAT,
+        messageText: source.text,
+        action: 'reply',
+        replyText: '不可寫入另一種聊天室',
+        source,
+        sourceToken: pending.replySourceTarget.token,
+      }),
+      { code: 'LINE_REPLY_SOURCE_CHAT_TYPE_MISMATCH' },
+    );
+    assert.equal(calls.some(call => ['right_click', 'click', 'set_value'].includes(call.name)), false);
+  }
+});
+
+test('a type-bound reply source token refuses an unproven current header before legacy selection', async () => {
+  const source = {
+    sourceRef: 'message:0123456789abcdef01234567',
+    text: '完整引用來源',
+    sender: '測試員',
+    date: '2026-09-11',
+    time: '10:22:33',
+  };
+  const view = (suffix, options = {}) => replySourceVisualState({ text: source.text, hash: 'a', suffix, ...options });
+  const { ui, calls, automationCalls } = fakeEnvironment({
+    states: [
+      view('unknown-source-inspect'),
+      view('unknown-source-capture'),
+      view('unknown-confirm-window'),
+      view('unknown-confirm-fresh'),
+      view('unknown-before-stage', { chatLabel: '目前聊天室未驗證' }),
+      view('unknown-before-stage-ocr', { chatLabel: '目前聊天室未驗證' }),
+    ],
+    ...visualHelpers(),
+  });
+  const pending = await ui.getReplySourceTarget({ chatName: CHAT, chatType: 'direct', source });
+  await ui.confirmReplySourceTarget({
+    chatName: CHAT,
+    token: pending.replySourceTarget.token,
+    observedSource: source,
+    sourceRect: { x: 160, y: 180, width: 140, height: 72 },
+    sourcePoint: { x: 220, y: 214 },
+  });
+  await assert.rejects(
+    ui.messageAction({
+      chatName: CHAT,
+      messageText: source.text,
+      action: 'reply',
+      replyText: '不可導覽到未驗證聊天室',
+      source,
+      sourceToken: pending.replySourceTarget.token,
+    }),
+    { code: 'LINE_REPLY_SOURCE_CHAT_TYPE_UNVERIFIED' },
+  );
+  assert.deepEqual(automationCalls, []);
+  assert.equal(calls.some(call => ['right_click', 'click', 'set_value'].includes(call.name)), false);
+});
+
+test('a caller-confirmed visual header treats a member-count suffix as group proof for reply source', async () => {
+  const source = {
+    sourceRef: 'message:0123456789abcdef01234567',
+    text: '完整引用來源',
+    sender: '測試員',
+    date: '2026-09-11',
+    time: '10:22:33',
+  };
+  const { ui, calls, automationCalls } = fakeEnvironment({
+    windows: [CURRENT_MAIN_TARGET],
+    states: Array.from({ length: 6 }, (_, index) => currentMainVisualState({ suffix: `visual-group-${index}` })),
+    ...visualHelpers(),
+    randomToken: () => 'visual-group-token',
+    now: () => 1_000_000,
+  });
+  const pending = await ui.getState({ chatName: CHAT, includeScreenshot: true });
+  await ui.confirmChat({
+    chatName: CHAT,
+    token: pending.visualVerification.token,
+    observedHeader: `${CHAT} (7)`,
+  });
+  await assert.rejects(
+    ui.getReplySourceTarget({ chatName: CHAT, chatType: 'direct', source }),
+    { code: 'LINE_REPLY_SOURCE_CHAT_TYPE_MISMATCH' },
+  );
+  assert.deepEqual(automationCalls, []);
+  assert.equal(calls.some(call => ['right_click', 'click', 'set_value'].includes(call.name)), false);
+});
+
+test('a visually bound reply never fakes quote verification when the post-action UI lacks an accessible quote marker', async () => {
+  const text = '完整引用來源';
+  const source = {
+    sourceRef: 'message:0123456789abcdef01234567',
+    text,
+    sender: '測試員',
+    date: '2026-09-11',
+    time: '10:22:33',
+  };
+  const visual = (suffix, options = {}) => replySourceVisualState({ text, hash: 'a', suffix, ...options });
+  const { ui, calls } = fakeEnvironment({
+    states: [
+      visual('quote-pending-inspect'),
+      visual('quote-pending-capture'),
+      visual('quote-pending-confirm-window'),
+      visual('quote-pending-confirm-fresh'),
+      visual('quote-pending-reply-inspect'),
+      visual('quote-pending-reply-before'),
+      visual('quote-pending-after-menu', { menu: 'Reply' }),
+      visual('quote-pending-guard', { menu: 'Reply' }),
+      visual('quote-pending-menu-before', { menu: 'Reply' }),
+      visual('quote-pending-fresh-main', { menu: 'Reply' }),
+      visual('quote-pending-after'),
+    ],
+    ...visualHelpers(),
+  });
+  const pending = await ui.getReplySourceTarget({ chatName: CHAT, chatType: 'direct', source });
+  await ui.confirmReplySourceTarget({
+    chatName: CHAT,
+    token: pending.replySourceTarget.token,
+    observedSource: source,
+    sourceRect: { x: 160, y: 180, width: 140, height: 72 },
+    sourcePoint: { x: 220, y: 214 },
+  });
+  const result = await ui.messageAction({
+    chatName: CHAT,
+    messageText: text,
+    action: 'reply',
+    replyText: '不得自行補寫草稿',
+    source,
+    sourceToken: pending.replySourceTarget.token,
+  });
+  assert.equal(result.quoteVerified, false);
+  assert.equal(result.draftStaged, false);
+  assert.equal(result.requiresVisualQuoteConfirmation, true);
+  assert.equal(result.operationMayHaveCompleted, true);
+  assert.equal(result.images.length, 1);
+  assert.equal(calls.some(call => call.name === 'set_value'), false);
+});
+
+test('reply-source confirmation rejects sender and timestamp drift before it can select a LINE bubble', async () => {
+  const text = '完整引用來源';
+  const source = {
+    sourceRef: 'message:0123456789abcdef01234567',
+    text,
+    sender: '測試員',
+    date: '2026-09-11',
+    time: '10:22:33',
+  };
+  const { ui, calls } = fakeEnvironment({
+    states: [
+      replySourceVisualState({ text, hash: 'a', suffix: 'drift-inspect' }),
+      replySourceVisualState({ text, hash: 'a', suffix: 'drift-capture' }),
+    ],
+    ...visualHelpers(),
+  });
+  const pending = await ui.getReplySourceTarget({ chatName: CHAT, chatType: 'direct', source });
+  for (const observedSource of [
+    { ...source, sender: '另一位' },
+    { ...source, time: '10:22:34' },
+  ]) {
+    await assert.rejects(
+      ui.confirmReplySourceTarget({
+        chatName: CHAT,
+        token: pending.replySourceTarget.token,
+        observedSource,
+        sourceRect: { x: 160, y: 180, width: 140, height: 72 },
+        sourcePoint: { x: 220, y: 214 },
+      }),
+      { code: 'LINE_REPLY_SOURCE_CONFIRMATION_INVALID' },
+    );
+  }
+  assert.equal(calls.some(call => call.name === 'right_click'), false);
+});
+
+test('reply-source confirmation refuses visually ambiguous duplicate accessible bubbles', async () => {
+  const text = 'same visible message';
+  const source = {
+    sourceRef: 'message:0123456789abcdef01234567',
+    text,
+    sender: '測試員',
+    date: '2026-09-11',
+    time: '10:22:33',
+  };
+  const duplicate = suffix => replySourceVisualState({
+    text,
+    hash: 'a',
+    suffix,
+    includeMessage: true,
+    duplicateMessage: true,
+  });
+  const { ui, calls } = fakeEnvironment({
+    states: [
+      duplicate('duplicate-inspect'),
+      duplicate('duplicate-capture'),
+      duplicate('duplicate-confirm-window'),
+      duplicate('duplicate-confirm-fresh'),
+    ],
+    ...visualHelpers(),
+  });
+  const pending = await ui.getReplySourceTarget({ chatName: CHAT, chatType: 'direct', source });
+  await assert.rejects(
+    ui.confirmReplySourceTarget({
+      chatName: CHAT,
+      token: pending.replySourceTarget.token,
+      observedSource: source,
+      sourceRect: { x: 160, y: 180, width: 140, height: 72 },
+      sourcePoint: { x: 220, y: 214 },
+    }),
+    { code: 'LINE_REPLY_SOURCE_AMBIGUOUS' },
+  );
+  assert.equal(calls.some(call => call.name === 'right_click'), false);
+});
+
+test('a changed source crop invalidates a reply-source token before right-click and the token is single-use', async () => {
+  const text = '完整引用來源';
+  const source = {
+    sourceRef: 'message:0123456789abcdef01234567',
+    text,
+    sender: '測試員',
+    date: '2026-09-11',
+    time: '10:22:33',
+  };
+  const stable = suffix => replySourceVisualState({ text, hash: 'a', suffix });
+  const { ui, calls } = fakeEnvironment({
+    states: [
+      stable('stale-inspect'),
+      stable('stale-capture'),
+      stable('stale-confirm-window'),
+      stable('stale-confirm-fresh'),
+      stable('stale-reply-inspect'),
+      replySourceVisualState({ text, hash: 'b', suffix: 'stale-reply-before' }),
+      stable('single-use-reply-inspect'),
+    ],
+    ...visualHelpers(),
+  });
+  const pending = await ui.getReplySourceTarget({ chatName: CHAT, chatType: 'direct', source });
+  await ui.confirmReplySourceTarget({
+    chatName: CHAT,
+    token: pending.replySourceTarget.token,
+    observedSource: source,
+    sourceRect: { x: 160, y: 180, width: 140, height: 72 },
+    sourcePoint: { x: 220, y: 214 },
+  });
+  const args = {
+    chatName: CHAT,
+    messageText: text,
+    action: 'reply',
+    replyText: '草稿',
+    source,
+    sourceToken: pending.replySourceTarget.token,
+  };
+  await assert.rejects(ui.messageAction(args), { code: 'LINE_REPLY_SOURCE_STALE' });
+  await assert.rejects(ui.messageAction(args), { code: 'LINE_REPLY_SOURCE_CONFIRMATION_INVALID' });
+  assert.equal(calls.some(call => call.name === 'right_click'), false);
+});
+
+test('an expired reply-source token is rejected before a fresh screenshot can be treated as confirmation', async () => {
+  const text = '完整引用來源';
+  const source = {
+    sourceRef: 'message:0123456789abcdef01234567',
+    text,
+    sender: '測試員',
+    date: '2026-09-11',
+    time: '10:22:33',
+  };
+  let clock = 1_000;
+  const { ui, calls } = fakeEnvironment({
+    states: [
+      replySourceVisualState({ text, hash: 'a', suffix: 'expiry-inspect' }),
+      replySourceVisualState({ text, hash: 'a', suffix: 'expiry-capture' }),
+    ],
+    ...visualHelpers(),
+    now: () => clock,
+  });
+  const pending = await ui.getReplySourceTarget({ chatName: CHAT, chatType: 'direct', source });
+  clock += 120_001;
+  await assert.rejects(
+    ui.confirmReplySourceTarget({
+      chatName: CHAT,
+      token: pending.replySourceTarget.token,
+      observedSource: source,
+      sourceRect: { x: 160, y: 180, width: 140, height: 72 },
+      sourcePoint: { x: 220, y: 214 },
+    }),
+    { code: 'LINE_REPLY_SOURCE_CONFIRMATION_INVALID' },
+  );
+  assert.equal(calls.some(call => call.name === 'right_click'), false);
+});
+
+test('reply stages an exact quote and draft once without sending', async () => {
+  const text = 'reply source';
+  const replyText = 'draft only';
+  const menu = element(8, { label: 'Reply', role: 'MenuItem' });
+  const { ui, calls } = fakeEnvironment({
+    states: [
+      state([header()], 'inspect'),
+      state([header(), message(text), composer('')], 'right-before'),
+      state([header(), message(text), composer(''), menu], 'right-after'),
+      state([header(), message(text), composer(''), menu], 'guard-before-reply'),
+      state([header(), message(text), composer(''), menu], 'reply-menu-before'),
+      state([header(), message(text), composer(''), menu], 'fresh-main-before-reply-click'),
+      state([header(), message(text), quote(text), composer('')], 'reply-after'),
+      state([header(), message(text), quote(text), composer('')], 'draft-before'),
+      state([header(), message(text), quote(text), composer(replyText)], 'draft-after'),
+    ],
+  });
+
+  const result = await ui.messageAction({ chatName: CHAT, messageText: text, action: 'reply', replyText });
+  assert.equal(result.staged, true);
+  assert.equal(result.sent, false);
+  assert.equal(result.quoteVerified, true);
+  assert.equal(result.draftStaged, true);
+  assert.deepEqual(actionCalls(calls).map(call => call.name), ['right_click', 'click', 'set_value']);
+  assert.equal(calls.some(call => call.name === 'press_key'), false);
+});
+
+test('reply refuses an initial nonempty composer before opening its context menu', async () => {
+  const text = 'reply source';
+  const { ui, calls } = fakeEnvironment({
+    states: [
+      state([header()], 'inspect'),
+      state([header(), message(text), composer('existing draft')], 'right-before'),
+    ],
+  });
+
+  await assert.rejects(
+    ui.messageAction({ chatName: CHAT, messageText: text, action: 'reply', replyText: 'draft only' }),
+    error => error?.code === 'LINE_DRAFT_CONFLICT' && error?.operationMayHaveCompleted === false,
+  );
+  assert.deepEqual(actionCalls(calls), []);
+});
+
+test('reply preserves a detectable existing quoted context before opening its context menu', async () => {
+  const text = 'reply source';
+  const { ui, calls } = fakeEnvironment({
+    states: [
+      state([header()], 'inspect'),
+      state([header(), message(text), quote('an earlier source'), composer('')], 'right-before'),
+    ],
+  });
+
+  await assert.rejects(
+    ui.messageAction({ chatName: CHAT, messageText: text, action: 'reply' }),
+    error => error?.code === 'LINE_REPLY_CONTEXT_CONFLICT' && error?.operationMayHaveCompleted === false,
+  );
+  assert.deepEqual(actionCalls(calls), []);
+});
+
+test('reply refuses a draft that appears after its context menu opens without clicking Reply', async () => {
   const text = 'reply source';
   const menu = element(8, { label: 'Reply', role: 'MenuItem' });
   const { ui, calls } = fakeEnvironment({
@@ -529,17 +1056,164 @@ test('reply stops before staging replyText when quoted context is not verified',
       state([header(), message(text), composer('')], 'right-before'),
       state([header(), message(text), composer(''), menu], 'right-after'),
       state([header(), message(text), composer(''), menu], 'guard-before-reply'),
-      state([header(), message(text), composer(''), menu], 'reply-before'),
+      state([header(), message(text), composer(''), menu], 'reply-menu-before'),
+      state([header(), message(text), composer('racing draft'), menu], 'fresh-main-before-reply-click'),
+    ],
+  });
+
+  await assert.rejects(
+    ui.messageAction({ chatName: CHAT, messageText: text, action: 'reply', replyText: 'draft only' }),
+    error => error?.code === 'LINE_DRAFT_CONFLICT'
+      && error?.operationMayHaveCompleted === true
+      && error?.details?.contextMenuMayBeOpen === true
+      && error?.details?.actionSelected === false
+      && error?.details?.replyContextMayBeOpen === false
+      && error?.details?.draftMayBeStaged === false
+      && !error.message.includes('left unchanged'),
+  );
+  assert.deepEqual(actionCalls(calls).map(call => call.name), ['right_click']);
+});
+
+test('reply reobserves the main chat after selecting a detached Qt context menu item', async () => {
+  const text = 'reply source';
+  const menu = element(8, { label: 'Reply', role: 'MenuItem' });
+  const popup = { ...TARGET, title: 'LINE', window_id: 100 };
+  const { ui, calls } = fakeEnvironment({
+    states: [
+      state([header()], 'inspect'),
+      state([header(), message(text), composer('')], 'right-before'),
+      state([header(), message(text), composer('')], 'right-after'),
+      state([menu], 'popup-menu'),
+      state([header(), message(text), composer('')], 'guard-before-reply'),
+      state([menu], 'popup-before-click'),
+      state([header(), message(text), composer('')], 'fresh-main-before-reply-click'),
+      state([], 'popup-after-click'),
+      state([header(), message(text), quote(text), composer('')], 'main-after-reply'),
+    ],
+    handlers: {
+      list_windows: (_args, calls) => ({
+        windows: calls.filter(call => call.name === 'list_windows').length < 3
+          ? [TARGET]
+          : [TARGET, popup],
+      }),
+    },
+  });
+
+  const result = await ui.messageAction({ chatName: CHAT, messageText: text, action: 'reply' });
+  assert.equal(result.quoteVerified, true);
+  assert.equal(result.sent, false);
+  assert.deepEqual(actionCalls(calls).map(call => call.name), ['right_click', 'click']);
+});
+
+test('reply reports uncertainty without staging when its selected quote is missing', async () => {
+  const text = 'reply source';
+  const menu = element(8, { label: 'Reply', role: 'MenuItem' });
+  const { ui, calls } = fakeEnvironment({
+    states: [
+      state([header()], 'inspect'),
+      state([header(), message(text), composer('')], 'right-before'),
+      state([header(), message(text), composer(''), menu], 'right-after'),
+      state([header(), message(text), composer(''), menu], 'guard-before-reply'),
+      state([header(), message(text), composer(''), menu], 'reply-menu-before'),
+      state([header(), message(text), composer(''), menu], 'fresh-main-before-reply-click'),
       state([header(), message(text), composer('')], 'reply-after-no-quote'),
     ],
   });
 
   await assert.rejects(
     ui.messageAction({ chatName: CHAT, messageText: text, action: 'reply', replyText: 'draft only' }),
-    { code: 'LINE_REPLY_UNVERIFIED' },
+    error => error?.code === 'LINE_REPLY_UNVERIFIED'
+      && error?.operationMayHaveCompleted === true
+      && error?.details?.contextMenuMayBeOpen === true
+      && error?.details?.actionSelected === true
+      && error?.details?.replyContextMayBeOpen === true
+      && error?.details?.draftMayBeStaged === false,
   );
-  assert.equal(calls.some(call => call.name === 'set_value'), false);
-  assert.equal(calls.some(call => call.name === 'press_key'), false);
+  assert.deepEqual(actionCalls(calls).map(call => call.name), ['right_click', 'click']);
+});
+
+test('reply reports uncertainty without staging when its selected quote is ambiguous', async () => {
+  const text = 'reply source';
+  const menu = element(8, { label: 'Reply', role: 'MenuItem' });
+  const { ui, calls } = fakeEnvironment({
+    states: [
+      state([header()], 'inspect'),
+      state([header(), message(text), composer('')], 'right-before'),
+      state([header(), message(text), composer(''), menu], 'right-after'),
+      state([header(), message(text), composer(''), menu], 'guard-before-reply'),
+      state([header(), message(text), composer(''), menu], 'reply-menu-before'),
+      state([header(), message(text), composer(''), menu], 'fresh-main-before-reply-click'),
+      state([header(), message(text), quote(text, 4), quote(text, 5), composer('')], 'reply-after-ambiguous-quote'),
+    ],
+  });
+
+  await assert.rejects(
+    ui.messageAction({ chatName: CHAT, messageText: text, action: 'reply', replyText: 'draft only' }),
+    error => error?.code === 'LINE_REPLY_UNVERIFIED'
+      && error?.operationMayHaveCompleted === true
+      && error?.details?.actionSelected === true
+      && error?.details?.replyContextMayBeOpen === true
+      && error?.details?.draftMayBeStaged === false,
+  );
+  assert.deepEqual(actionCalls(calls).map(call => call.name), ['right_click', 'click']);
+});
+
+test('reply reports uncertainty and does not retry when a staged quote changes', async () => {
+  const text = 'reply source';
+  const replyText = 'draft only';
+  const menu = element(8, { label: 'Reply', role: 'MenuItem' });
+  const { ui, calls } = fakeEnvironment({
+    states: [
+      state([header()], 'inspect'),
+      state([header(), message(text), composer('')], 'right-before'),
+      state([header(), message(text), composer(''), menu], 'right-after'),
+      state([header(), message(text), composer(''), menu], 'guard-before-reply'),
+      state([header(), message(text), composer(''), menu], 'reply-menu-before'),
+      state([header(), message(text), composer(''), menu], 'fresh-main-before-reply-click'),
+      state([header(), message(text), quote(text), composer('')], 'reply-after'),
+      state([header(), message(text), quote(text), composer('')], 'draft-before'),
+      state([header(), message(text), quote('another source'), composer(replyText)], 'draft-after-quote-changed'),
+    ],
+  });
+
+  await assert.rejects(
+    ui.messageAction({ chatName: CHAT, messageText: text, action: 'reply', replyText }),
+    error => error?.code === 'LINE_REPLY_UNVERIFIED'
+      && error?.operationMayHaveCompleted === true
+      && error?.details?.actionSelected === true
+      && error?.details?.replyContextMayBeOpen === true
+      && error?.details?.draftMayBeStaged === true,
+  );
+  assert.deepEqual(actionCalls(calls).map(call => call.name), ['right_click', 'click', 'set_value']);
+});
+
+test('reply reports uncertainty and does not retry when its staged text differs', async () => {
+  const text = 'reply source';
+  const replyText = 'draft only';
+  const menu = element(8, { label: 'Reply', role: 'MenuItem' });
+  const { ui, calls } = fakeEnvironment({
+    states: [
+      state([header()], 'inspect'),
+      state([header(), message(text), composer('')], 'right-before'),
+      state([header(), message(text), composer(''), menu], 'right-after'),
+      state([header(), message(text), composer(''), menu], 'guard-before-reply'),
+      state([header(), message(text), composer(''), menu], 'reply-menu-before'),
+      state([header(), message(text), composer(''), menu], 'fresh-main-before-reply-click'),
+      state([header(), message(text), quote(text), composer('')], 'reply-after'),
+      state([header(), message(text), quote(text), composer('')], 'draft-before'),
+      state([header(), message(text), quote(text), composer('different text')], 'draft-after-text-changed'),
+    ],
+  });
+
+  await assert.rejects(
+    ui.messageAction({ chatName: CHAT, messageText: text, action: 'reply', replyText }),
+    error => error?.code === 'LINE_DRAFT_WRITE_UNVERIFIED'
+      && error?.operationMayHaveCompleted === true
+      && error?.details?.actionSelected === true
+      && error?.details?.replyContextMayBeOpen === true
+      && error?.details?.draftMayBeStaged === true,
+  );
+  assert.deepEqual(actionCalls(calls).map(call => call.name), ['right_click', 'click', 'set_value']);
 });
 
 test('forward stops at a verified recipient dialog and never sends', async () => {
@@ -994,7 +1668,7 @@ test('file-picker failure after an optional draft is reported as partial local s
   await assert.rejects(
     ui.stageFile({
       chatName: CHAT,
-      filePath: path.resolve('test-fixtures', 'attachment.pdf'),
+      filePath: 'C:\\example\\attachment.pdf',
       optionalMessage: 'attachment note',
     }),
     error => error?.code === 'LINE_STAGE_UNVERIFIED'
