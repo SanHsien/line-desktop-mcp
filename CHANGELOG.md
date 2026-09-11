@@ -1,5 +1,63 @@
 # Changelog
 
+## 3.0.0 — 2026-09-12 (Asia/Taipei)
+
+**Fail-closed named-chat GUI verification.** This GitHub release is published
+from `bensonmaxai/line-desktop-mcp` under tag `v3.0.0`. The package and MCP
+server identity remain `line-desktop-mcp`; no npm-registry or MCPB publication
+accompanies this release.
+
+### Breaking security changes
+
+- Every Windows named-chat GUI path, including the five default descriptors,
+  now requires configured CUA plus the existing Python/SQLite3MC local reader.
+  The five descriptor names, order, and input schemas remain, but their
+  platform availability descriptions change. Missing prerequisites refuse; they
+  do not silently retain the prior GUI behavior.
+- Before a CUA LINE-window listing/state read/input or AHK/clipboard activity,
+  a fresh metadata-only local lookup must resolve one complete, unique identity:
+  an exact raw group name or an exact effective contact name with an existing
+  direct-chat row. It reads no message rows or media. NFC-only, whitespace,
+  member-count, cross-type, missing, incomplete, and ambiguous matches fail
+  closed.
+- `open_line_chat` only verifies an authorized chat that is already open after
+  user-controlled or guided LINE navigation; it never selects the first search
+  result. Active-chat guards run before input and after it completes. Any
+  identity uncertainty refuses rather than continuing or automatically retrying.
+- Legacy history verifies the exact main chat before and after every scroll/copy
+  child. Drift discards copied text before a result, export, or optional history
+  log. The clipboard helper restores prior available formats only while its
+  owned sequence is unchanged; a foreign update is preserved and the read
+  refuses. Clipboard History/listeners can still retain the transient copy, and
+  a small compare/restore race remains.
+- `sourceToken` now binds fresh observed pixels, source identity, the fresh
+  local chat reference, and direct/group kind. Source observations return only a
+  verified message-area crop with `(0, 0)` origin; the bridge rebases internally
+  once. The post-Reply fallback is reverified and cropped to the same chat body
+  and composer.
+- macOS keeps the five descriptors, but legacy history, text, and file
+  operations return `LINE_CHAT_VERIFICATION_UNAVAILABLE` before automation or
+  clipboard activity. No compatibility opt-out exists while macOS lacks a
+  verified active-chat implementation.
+- APNG uses the existing bounded first-frame preview path. Static PNG/JPEG keep
+  original bytes, and over-nested JSON metadata is ignored after `RecursionError`
+  so other messages on a scoped page remain available.
+
+Pure local DB history retains its existing reader prerequisites and does not
+need CUA. The poll reader retains its local-group identity and CUA prerequisites.
+Tool/capability metadata remains callable without named-chat identity proof, and
+`get_line_status` preserves independent local-reader status when GUI status is
+unavailable. See [upgrade and rollback](docs/MIGRATING.md#upgrading-to-v300).
+
+### Verification scope
+
+Pre-release security verification recorded 221/221 Node checks, 101 passing
+Python checks plus one symlink-related skip
+(102 total), nine passing native SQLite checks, and an AutoHotkey parser pass.
+The new v3 GUI identity flow was not live end-to-end tested against LINE. The
+v2.0.0 live GUI evidence and timing samples below are historical context, not
+v3.0.0 validation or a performance claim.
+
 ## 2.0.0 — 2026-09-11
 
 **LINE context, including images. Faster local reads.** This major release continues the existing `bensonmaxai/line-desktop-mcp` repository and MCP/package identity. LINE Agent MCP is the display name of the Windows community edition, derived from Geoffrey Wang's MIT-licensed upstream project.

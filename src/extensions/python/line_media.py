@@ -147,7 +147,9 @@ def image_details(data):
                           'width':image.width,'height':image.height,
                           'decodedSha256':hashlib.sha256(data).hexdigest(),'decodedBytes':len(data),
                           'formatValidation':'Pillow_first_frame'}
-                if image.format in ('PNG','JPEG'):
+                if (image.format in ('PNG','JPEG') and
+                        not getattr(image,'is_animated',False) and
+                        getattr(image,'n_frames',1) == 1):
                     _add_preview(result,data,result['mimeType'],image.format,
                                  width=image.width,height=image.height,role='source_bytes')
                 else:

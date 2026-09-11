@@ -106,7 +106,7 @@ test('quoted visual source requires fresh local identity before any UI selection
     messageAction: async args => { calls.push(['stage', args]); return { sent: false }; } };
   const { extension } = fixture(history, { ui, localReader: async scope => {
     calls.push(['local', scope]);
-    return { messages: [row], chatIdentity: { kind: 'direct' }, scope: { truncated: false }, freshness: { snapshotCapturedAt: '2026-09-10T08:00:00Z' } };
+    return { chatRef: 'chat:' + 'c'.repeat(24), messages: [row], chatIdentity: { kind: 'direct' }, scope: { truncated: false }, freshness: { snapshotCapturedAt: '2026-09-10T08:00:00Z' } };
   } });
   const args = { chatName: 'Alice', chatType: 'direct', source };
   const result = body(await extension.call('get_line_reply_source_target', args));
@@ -118,6 +118,7 @@ test('quoted visual source requires fresh local identity before any UI selection
   assert.equal(calls[0][1].chatType, 'direct');
   assert.equal(calls[0][1].mediaMode, 'metadata');
   assert.equal(calls[1][1].chatType, 'direct');
+  assert.equal(calls[1][1].chatRef, 'chat:' + 'c'.repeat(24));
   assert.deepEqual(calls.map(c => c[0]), ['local', 'ui']);
   for (const change of [{sender:'Bob'}, {time:'11:54:47'}, {text:'different'}, {sourceRef:'message:'+'b'.repeat(24)}]) {
     calls.length = 0; row = { ...source, time: '10:54:47', ...change };
@@ -200,6 +201,62 @@ test('verification uses exact full message/sender and never claims new delivery'
   assert.equal(result.deliveryVerified, false);
   assert.equal(result.mentionVerified, false);
   assert.equal(body(await extension.call('verify_line_message', { chatName: 'Test', message: 'exact', sender: 'Ali' })).found, false);
+});
+
+test('chat identity refusal propagates through every UI history alias without exporting', async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'line-refused-export-'));
+  const outputPath = path.join(directory, 'messages.json');
+  try {
+    const { extension, automation } = fixture();
+    let reads = 0;
+    automation.getChatHistory = async () => {
+      reads++;
+      throw Object.assign(new Error('Synthetic selected chat changed'), { code: 'LINE_CHAT_STALE' });
+    };
+    const requests = [
+      ...['short', 'default', 'long'].map(size => [`get_line_chatroom_history_${size}`, {}]),
+      ['get_line_chat_messages', {}],
+      ['search_line_chat_messages', { query: 'exact' }],
+      ['verify_line_message', { message: 'exact' }],
+      ['export_line_chat_history', { outputPath, format: 'json' }],
+    ];
+    for (const [name, args] of requests) {
+      const result = await extension.call(name, { chatName: 'Test', ...args });
+      assert.equal(result.isError, true, name);
+      assert.equal(body(result).code, 'LINE_CHAT_STALE', name);
+      assert.equal(body(result).history, undefined);
+      assert.equal(body(result).messages, undefined);
+      assert.equal(result.content.some(item => item.type === 'image'), false);
+    }
+    assert.equal(reads, requests.length, 'each request has only one history attempt');
+    await assert.rejects(fs.stat(outputPath), { code: 'ENOENT' });
+  } finally {
+    assert.ok(path.resolve(directory).startsWith(path.resolve(os.tmpdir()) + path.sep));
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('identity refusal during optional UI comparison preserves local rows without retry', async () => {
+  const messages = [{ sourceRef: 'message:' + 'a'.repeat(24), date: '2026-09-10', time: '10:00', sender: 'Alice', text: 'authorized local row', contentType: 0, media: {} }];
+  const { extension, automation } = fixture(history, { localReader: async scope => ({
+    ok: true, chatName: scope.chatName, count: 1, messages,
+    scope: { kind: 'local_database', requested: { ...scope, messageLimit: 200 } },
+  }) });
+  let reads = 0;
+  automation.getChatHistory = async () => {
+    reads++;
+    throw Object.assign(new Error('Synthetic chat mismatch'), { code: 'LINE_CHAT_STALE' });
+  };
+  const result = await extension.call('get_line_local_messages', {
+    chatName: 'Test', dateFrom: '2026-09-10', dateTo: '2026-09-10', compareWithUi: true,
+  });
+  assert.notEqual(result.isError, true);
+  assert.equal(body(result).count, 1);
+  assert.deepEqual(body(result).messages, messages);
+  assert.equal(body(result).crossCheck.status, 'unavailable');
+  assert.equal(body(result).crossCheck.uiActionIdentityVerified, false);
+  assert.equal(body(result).crossCheck.deliveryVerified, false);
+  assert.equal(reads, 1);
 });
 
 test('send/stage distinguish dispatch, draft and delivery; failures remain MCP errors', async () => {

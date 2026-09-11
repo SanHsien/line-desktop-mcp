@@ -4,6 +4,15 @@ import test from 'node:test';
 import { LineUi } from '../src/extensions/line-ui.mjs';
 
 const CHAT = '測試♋️';
+const CHAT_REF = 'chat:0123456789abcdef01234567';
+
+function localGuiIdentity(chatName = CHAT, kind = 'direct', chatRef = CHAT_REF) {
+  return {
+    chatName, chatRef, count: 0, messages: [],
+    chatIdentity: { kind, displayName: chatName, uiIdentityVerified: false, guiDisplayNameUnique: true },
+    scope: { kind: 'local_gui_chat_identity' },
+  };
+}
 const TARGET = {
   app_name: 'LINE.exe',
   title: 'LINE',
@@ -316,6 +325,8 @@ function fakeEnvironment({
   now,
   innerAutomation,
   activateLine,
+  trace,
+  readChatIdentity,
 } = {}) {
   const calls = [];
   const automationCalls = [];
@@ -325,6 +336,7 @@ function fakeEnvironment({
     tools: new Set(tools),
     serverVersion: 'fake-cua',
     async call(name, args) {
+      trace?.push(name);
       calls.push({ name, args });
       if (handlers[name]) return handlers[name](args, calls);
       if (name === 'list_windows') return { windows };
@@ -356,6 +368,8 @@ function fakeEnvironment({
   };
   const ui = new LineUi({
     automation,
+    readChatIdentity: readChatIdentity ?? (async ({ chatName }) => localGuiIdentity(chatName,
+      states[0]?.elements?.some(item => item.label === `${chatName} (2)`) ? 'group' : 'direct')),
     withClient: async callback => callback(api),
     runOperation: async (kind, callback) => {
       locks.push(kind);
@@ -375,6 +389,44 @@ function actionCalls(calls) {
   return calls.filter(call => !['list_windows', 'get_window_state'].includes(call.name));
 }
 
+test('ambiguous or unavailable local GUI identity refuses every chat entry before CUA or legacy actions', async () => {
+  for (const code of ['CHAT_AMBIGUOUS', 'GUI_IDENTITY_UNAVAILABLE', 'ENGINE_DLL_UNCONFIGURED']) {
+    for (const method of ['openChat', 'getState', 'getDraft', 'setDraft', 'clearDraft', 'sendText', 'readLegacyHistory', 'stageFile', 'openFeature', 'messageAction', 'getReplySourceTarget']) {
+      const { ui, calls, automationCalls } = fakeEnvironment({
+        states: Array.from({ length: 10 }, () => state([header(), composer('')])),
+        readChatIdentity: async () => { throw Object.assign(new Error('identity refused'), { code }); },
+      });
+      await assert.rejects(ui[method]({
+        chatName: CHAT, message: 'authorized draft', expectedDraft: '', autoSend: false,
+        filePath: 'C:\\safe-test.txt', feature: 'search', messageText: 'source', action: 'copy',
+        chatType: 'direct', chatRef: CHAT_REF,
+        ...(method === 'getReplySourceTarget' ? {
+          source: { sourceRef: 'message:0123456789abcdef01234567', text: 'source', sender: 'Tester', date: '2026-09-11', time: '10:22:33' },
+        } : {}),
+      }), { code });
+      assert.deepEqual(calls, [], `${method} must not call CUA`);
+      assert.deepEqual(automationCalls, [], `${method} must not call the legacy backend`);
+    }
+  }
+});
+
+test('malformed GUI identity proof cannot be used as a unique chat', async () => {
+  for (const defect of [
+    { chatRef: 'raw-private-id' },
+    { chatName: 'Different chat' },
+    { chatIdentity: { ...localGuiIdentity().chatIdentity, guiDisplayNameUnique: false } },
+    { count: 1, messages: [{ text: 'unexpected' }] },
+    { scope: { kind: 'local_chat_identity' } },
+  ]) {
+    const { ui, calls } = fakeEnvironment({
+      states: [state([header()])],
+      readChatIdentity: async () => ({ ...localGuiIdentity(), ...defect }),
+    });
+    await assert.rejects(ui.openChat({ chatName: CHAT }), { code: 'LINE_CHAT_IDENTITY_UNVERIFIED' });
+    assert.deepEqual(calls, []);
+  }
+});
+
 test('does not treat a sidebar or global-search hit as an active chat header', async () => {
   const { ui, calls, automationCalls, locks } = fakeEnvironment({
     states: Array.from({ length: 4 }, (_, index) => state([
@@ -384,12 +436,24 @@ test('does not treat a sidebar or global-search hit as an active chat header', a
   });
 
   await assert.rejects(ui.openChat({ chatName: CHAT }), { code: 'LINE_CHAT_UNVERIFIED' });
-  assert.deepEqual(automationCalls, ['activate', ['select', CHAT]]);
+  assert.deepEqual(automationCalls, []);
   assert.deepEqual(locks, ['ui-open-chat']);
   assert.deepEqual(calls.map(call => call.name), [
     'list_windows', 'get_window_state', 'get_window_state',
-    'list_windows', 'get_window_state', 'get_window_state',
   ]);
+});
+
+test('unverified GUI entry points never open the first unverified search result', async () => {
+  for (const method of ['openChat', 'getState', 'getDraft', 'sendText', 'readLegacyHistory']) {
+    const { ui, calls, automationCalls } = fakeEnvironment({
+      states: Array.from({ length: 6 }, (_, index) =>
+        state([headerFor('Another chat'), composer('')], `unverified-${index}`)),
+    });
+    await assert.rejects(ui[method]({ chatName: CHAT, message: 'not staged', autoSend: false }),
+      { code: 'LINE_CHAT_UNVERIFIED' });
+    assert.deepEqual(automationCalls, [], method);
+    assert.deepEqual(actionCalls(calls), [], method);
+  }
 });
 
 test('accepts an exact detached LINE window title without mistaking a sidebar entry for a header', async () => {
@@ -583,8 +647,8 @@ test('a caller-confirmed visual source binds one custom-drawn reply point and pr
     date: '2026-09-11',
     time: '10:22:33',
   };
-  const sourceRect = { x: 160, y: 180, width: 140, height: 72 };
-  const sourcePoint = { x: 220, y: 214 };
+  const sourceRect = { x: 60, y: 130, width: 140, height: 72 };
+  const sourcePoint = { x: 120, y: 164 };
   const visual = (suffix, options = {}) => replySourceVisualState({ text, hash: 'a', suffix, ...options });
   const { ui, calls } = fakeEnvironment({
     states: [
@@ -605,10 +669,15 @@ test('a caller-confirmed visual source binds one custom-drawn reply point and pr
     ...visualHelpers(),
   });
 
-  const pending = await ui.getReplySourceTarget({ chatName: CHAT, chatType: 'direct', source });
+  const pending = await ui.getReplySourceTarget({ chatRef: CHAT_REF, chatName: CHAT, chatType: 'direct', source });
   assert.equal(pending.localSourceRef, source.sourceRef);
   assert.equal(pending.uiSourceRefVerified, false);
   assert.equal(pending.images.length, 1);
+  assert.deepEqual(pending.replySourceTarget.imageBounds, { x: 0, y: 0, width: 300, height: 448 });
+  assert.deepEqual(pending.replySourceTarget.messageBounds, pending.replySourceTarget.imageBounds);
+  assert.equal(pending.images[0].width, 300);
+  assert.equal(pending.images[0].height, 448);
+  assert.notEqual(pending.images[0].data, 'source-a');
   const confirmed = await ui.confirmReplySourceTarget({
     chatName: CHAT,
     token: pending.replySourceTarget.token,
@@ -633,9 +702,34 @@ test('a caller-confirmed visual source binds one custom-drawn reply point and pr
   assert.equal(result.localSourceRef, source.sourceRef);
   assert.equal(result.uiSourceRefVerified, false);
   assert.equal(result.sourceIdentityVerification, 'caller-confirmed-fresh-visual-source-region');
-  assert.equal(rightClick.args.x, sourcePoint.x);
-  assert.equal(rightClick.args.y, sourcePoint.y);
+  assert.deepEqual(confirmed.replySourceTarget.sourceRect, sourceRect);
+  assert.deepEqual(confirmed.replySourceTarget.sourcePoint, sourcePoint);
+  assert.equal(rightClick.args.x, sourcePoint.x + 100);
+  assert.equal(rightClick.args.y, sourcePoint.y + 50);
   assert.equal('element_token' in rightClick.args, false);
+});
+
+test('reply source refuses a crop helper that returns full-window pixels or a different region', async () => {
+  const source = {
+    sourceRef: 'message:0123456789abcdef01234567', text: '完整引用來源',
+    sender: '測試員', date: '2026-09-11', time: '10:22:33',
+  };
+  for (const defect of ['full-window', 'wrong-region']) {
+    const helpers = visualHelpers();
+    const { ui, calls } = fakeEnvironment({
+      states: ['inspect', 'capture'].map(suffix => replySourceVisualState({ text: source.text, suffix })),
+      ...helpers,
+      fingerprintRegion: async (image, region, options) => {
+        const result = await helpers.fingerprintRegion(image, region, options);
+        return defect === 'full-window'
+          ? { ...result, image }
+          : { ...result, region: { ...region, x: region.x + 1 } };
+      },
+    });
+    await assert.rejects(ui.getReplySourceTarget({ chatRef: CHAT_REF, chatName: CHAT, chatType: 'direct', source }),
+      { code: 'LINE_REPLY_SOURCE_UNVERIFIED' });
+    assert.equal(calls.some(call => ['right_click', 'set_value'].includes(call.name)), false);
+  }
 });
 
 test('reply source refuses an unproven or opposite direct/group chat before name-only navigation', async () => {
@@ -651,7 +745,7 @@ test('reply source refuses an unproven or opposite direct/group chat before name
       states: [replySourceVisualState({ text: source.text, chatType: observedChatType, suffix: `${expectedChatType}-wrong-kind` })],
     });
     await assert.rejects(
-      ui.getReplySourceTarget({ chatName: CHAT, chatType: expectedChatType, source }),
+      ui.getReplySourceTarget({ chatRef: CHAT_REF, chatName: CHAT, chatType: expectedChatType, source }),
       { code: 'LINE_REPLY_SOURCE_CHAT_TYPE_MISMATCH' },
     );
     assert.deepEqual(automationCalls, []);
@@ -664,7 +758,7 @@ test('reply source refuses an unproven or opposite direct/group chat before name
     states: [state([], 'detached-kind-unknown')],
   });
   await assert.rejects(
-    ui.getReplySourceTarget({ chatName: CHAT, chatType: 'direct', source }),
+    ui.getReplySourceTarget({ chatRef: CHAT_REF, chatName: CHAT, chatType: 'direct', source }),
     { code: 'LINE_REPLY_SOURCE_CHAT_TYPE_UNVERIFIED' },
   );
   assert.deepEqual(automationCalls, []);
@@ -679,8 +773,8 @@ test('a type-bound reply source token rejects same-name direct/group flips befor
     date: '2026-09-11',
     time: '10:22:33',
   };
-  const sourceRect = { x: 160, y: 180, width: 140, height: 72 };
-  const sourcePoint = { x: 220, y: 214 };
+  const sourceRect = { x: 60, y: 130, width: 140, height: 72 };
+  const sourcePoint = { x: 120, y: 164 };
   for (const [chatType, changedChatType] of [['direct', 'group'], ['group', 'direct']]) {
     const view = (suffix, type) => replySourceVisualState({ text: source.text, chatType: type, hash: 'a', suffix });
     const { ui, calls } = fakeEnvironment({
@@ -693,7 +787,7 @@ test('a type-bound reply source token rejects same-name direct/group flips befor
       ],
       ...visualHelpers(),
     });
-    const pending = await ui.getReplySourceTarget({ chatName: CHAT, chatType, source });
+    const pending = await ui.getReplySourceTarget({ chatRef: CHAT_REF, chatName: CHAT, chatType, source });
     await ui.confirmReplySourceTarget({
       chatName: CHAT,
       token: pending.replySourceTarget.token,
@@ -736,13 +830,13 @@ test('a type-bound reply source token refuses an unproven current header before 
     ],
     ...visualHelpers(),
   });
-  const pending = await ui.getReplySourceTarget({ chatName: CHAT, chatType: 'direct', source });
+  const pending = await ui.getReplySourceTarget({ chatRef: CHAT_REF, chatName: CHAT, chatType: 'direct', source });
   await ui.confirmReplySourceTarget({
     chatName: CHAT,
     token: pending.replySourceTarget.token,
     observedSource: source,
-    sourceRect: { x: 160, y: 180, width: 140, height: 72 },
-    sourcePoint: { x: 220, y: 214 },
+    sourceRect: { x: 60, y: 130, width: 140, height: 72 },
+    sourcePoint: { x: 120, y: 164 },
   });
   await assert.rejects(
     ui.messageAction({
@@ -772,6 +866,7 @@ test('a caller-confirmed visual header treats a member-count suffix as group pro
     states: Array.from({ length: 6 }, (_, index) => currentMainVisualState({ suffix: `visual-group-${index}` })),
     ...visualHelpers(),
     randomToken: () => 'visual-group-token',
+    readChatIdentity: async () => localGuiIdentity(CHAT, 'group'),
     now: () => 1_000_000,
   });
   const pending = await ui.getState({ chatName: CHAT, includeScreenshot: true });
@@ -781,7 +876,7 @@ test('a caller-confirmed visual header treats a member-count suffix as group pro
     observedHeader: `${CHAT} (7)`,
   });
   await assert.rejects(
-    ui.getReplySourceTarget({ chatName: CHAT, chatType: 'direct', source }),
+    ui.getReplySourceTarget({ chatRef: CHAT_REF, chatName: CHAT, chatType: 'direct', source }),
     { code: 'LINE_REPLY_SOURCE_CHAT_TYPE_MISMATCH' },
   );
   assert.deepEqual(automationCalls, []);
@@ -814,13 +909,13 @@ test('a visually bound reply never fakes quote verification when the post-action
     ],
     ...visualHelpers(),
   });
-  const pending = await ui.getReplySourceTarget({ chatName: CHAT, chatType: 'direct', source });
+  const pending = await ui.getReplySourceTarget({ chatRef: CHAT_REF, chatName: CHAT, chatType: 'direct', source });
   await ui.confirmReplySourceTarget({
     chatName: CHAT,
     token: pending.replySourceTarget.token,
     observedSource: source,
-    sourceRect: { x: 160, y: 180, width: 140, height: 72 },
-    sourcePoint: { x: 220, y: 214 },
+    sourceRect: { x: 60, y: 130, width: 140, height: 72 },
+    sourcePoint: { x: 120, y: 164 },
   });
   const result = await ui.messageAction({
     chatName: CHAT,
@@ -835,7 +930,51 @@ test('a visually bound reply never fakes quote verification when the post-action
   assert.equal(result.requiresVisualQuoteConfirmation, true);
   assert.equal(result.operationMayHaveCompleted, true);
   assert.equal(result.images.length, 1);
+  assert.equal(result.images[0].width, 300);
+  assert.equal(result.images[0].height, 550);
+  assert.notEqual(result.images[0].data, 'source-a');
   assert.equal(calls.some(call => call.name === 'set_value'), false);
+});
+
+test('post-Reply visual fallback refuses changed chat identity and uncropped helper output', async () => {
+  const source = {
+    sourceRef: 'message:0123456789abcdef01234567', text: '完整引用來源',
+    sender: '測試員', date: '2026-09-11', time: '10:22:33',
+  };
+  for (const defect of ['wrong-chat', 'full-window']) {
+    const helpers = visualHelpers();
+    const view = (suffix, options = {}) => replySourceVisualState({ text: source.text, suffix, ...options });
+    const { ui, calls } = fakeEnvironment({
+      states: [
+        view('inspect'), view('capture'), view('confirm-window'), view('confirm-fresh'),
+        view('reply-inspect'), view('reply-before'), view('after-menu', { menu: 'Reply' }),
+        view('guard', { menu: 'Reply' }), view('menu-before', { menu: 'Reply' }),
+        view('fresh-main', { menu: 'Reply' }),
+        view('after', defect === 'wrong-chat' ? { chatLabel: '另一個聊天室' } : {}),
+      ],
+      ...helpers,
+      fingerprintRegion: async (image, region, options) => {
+        const result = await helpers.fingerprintRegion(image, region, options);
+        return defect === 'full-window' && options?.includeImage && region.height === 550
+          ? { ...result, image } : result;
+      },
+    });
+    const pending = await ui.getReplySourceTarget({ chatRef: CHAT_REF, chatName: CHAT, chatType: 'direct', source });
+    await ui.confirmReplySourceTarget({
+      chatName: CHAT, token: pending.replySourceTarget.token, observedSource: source,
+      sourceRect: { x: 60, y: 130, width: 140, height: 72 }, sourcePoint: { x: 120, y: 164 },
+    });
+    await assert.rejects(ui.messageAction({
+      chatName: CHAT, messageText: source.text, action: 'reply', replyText: '不可寫入',
+      source, sourceToken: pending.replySourceTarget.token,
+    }), error => {
+      assert.equal(error.code, defect === 'wrong-chat' ? 'LINE_CHAT_STALE' : 'LINE_REPLY_UNVERIFIED');
+      assert.equal(error.operationMayHaveCompleted, true);
+      assert.equal(error.images, undefined);
+      return true;
+    });
+    assert.equal(calls.some(call => call.name === 'set_value'), false);
+  }
 });
 
 test('reply-source confirmation rejects sender and timestamp drift before it can select a LINE bubble', async () => {
@@ -854,7 +993,7 @@ test('reply-source confirmation rejects sender and timestamp drift before it can
     ],
     ...visualHelpers(),
   });
-  const pending = await ui.getReplySourceTarget({ chatName: CHAT, chatType: 'direct', source });
+  const pending = await ui.getReplySourceTarget({ chatRef: CHAT_REF, chatName: CHAT, chatType: 'direct', source });
   for (const observedSource of [
     { ...source, sender: '另一位' },
     { ...source, time: '10:22:34' },
@@ -864,8 +1003,8 @@ test('reply-source confirmation rejects sender and timestamp drift before it can
         chatName: CHAT,
         token: pending.replySourceTarget.token,
         observedSource,
-        sourceRect: { x: 160, y: 180, width: 140, height: 72 },
-        sourcePoint: { x: 220, y: 214 },
+        sourceRect: { x: 60, y: 130, width: 140, height: 72 },
+        sourcePoint: { x: 120, y: 164 },
       }),
       { code: 'LINE_REPLY_SOURCE_CONFIRMATION_INVALID' },
     );
@@ -898,14 +1037,14 @@ test('reply-source confirmation refuses visually ambiguous duplicate accessible 
     ],
     ...visualHelpers(),
   });
-  const pending = await ui.getReplySourceTarget({ chatName: CHAT, chatType: 'direct', source });
+  const pending = await ui.getReplySourceTarget({ chatRef: CHAT_REF, chatName: CHAT, chatType: 'direct', source });
   await assert.rejects(
     ui.confirmReplySourceTarget({
       chatName: CHAT,
       token: pending.replySourceTarget.token,
       observedSource: source,
-      sourceRect: { x: 160, y: 180, width: 140, height: 72 },
-      sourcePoint: { x: 220, y: 214 },
+      sourceRect: { x: 60, y: 130, width: 140, height: 72 },
+      sourcePoint: { x: 120, y: 164 },
     }),
     { code: 'LINE_REPLY_SOURCE_AMBIGUOUS' },
   );
@@ -934,13 +1073,13 @@ test('a changed source crop invalidates a reply-source token before right-click 
     ],
     ...visualHelpers(),
   });
-  const pending = await ui.getReplySourceTarget({ chatName: CHAT, chatType: 'direct', source });
+  const pending = await ui.getReplySourceTarget({ chatRef: CHAT_REF, chatName: CHAT, chatType: 'direct', source });
   await ui.confirmReplySourceTarget({
     chatName: CHAT,
     token: pending.replySourceTarget.token,
     observedSource: source,
-    sourceRect: { x: 160, y: 180, width: 140, height: 72 },
-    sourcePoint: { x: 220, y: 214 },
+    sourceRect: { x: 60, y: 130, width: 140, height: 72 },
+    sourcePoint: { x: 120, y: 164 },
   });
   const args = {
     chatName: CHAT,
@@ -973,15 +1112,15 @@ test('an expired reply-source token is rejected before a fresh screenshot can be
     ...visualHelpers(),
     now: () => clock,
   });
-  const pending = await ui.getReplySourceTarget({ chatName: CHAT, chatType: 'direct', source });
+  const pending = await ui.getReplySourceTarget({ chatRef: CHAT_REF, chatName: CHAT, chatType: 'direct', source });
   clock += 120_001;
   await assert.rejects(
     ui.confirmReplySourceTarget({
       chatName: CHAT,
       token: pending.replySourceTarget.token,
       observedSource: source,
-      sourceRect: { x: 160, y: 180, width: 140, height: 72 },
-      sourcePoint: { x: 220, y: 214 },
+      sourceRect: { x: 60, y: 130, width: 140, height: 72 },
+      sourcePoint: { x: 120, y: 164 },
     }),
     { code: 'LINE_REPLY_SOURCE_CONFIRMATION_INVALID' },
   );
@@ -1494,6 +1633,57 @@ test('visual header confirmation returns only a title crop and carries a fresh c
   assert.deepEqual(locks, ['ui-get-state', 'ui-confirm-chat-view', 'ui-get-draft']);
 });
 
+test('header confirmation and its cache reject a replacement local chat identity', async () => {
+  for (const replaceAt of ['confirm', 'use']) {
+    let currentRef = CHAT_REF;
+    const { ui, calls } = fakeEnvironment({
+      states: Array.from({ length: 9 }, (_, index) => nestedVisualState('', `identity-${index}`)),
+      ...visualHelpers(),
+      readChatIdentity: async () => localGuiIdentity(CHAT, 'direct', currentRef),
+    });
+    const pending = await ui.getState({ chatName: CHAT, includeScreenshot: true });
+    const confirm = () => ui.confirmChat({ chatName: CHAT, token: pending.visualVerification.token, observedHeader: CHAT });
+    if (replaceAt === 'use') await confirm();
+    currentRef = 'chat:ffffffffffffffffffffffff';
+    const priorCalls = calls.length;
+    await assert.rejects(replaceAt === 'confirm' ? confirm() : ui.getDraft({ chatName: CHAT }),
+      { code: 'LINE_CHAT_CONFIRMATION_STALE' });
+    if (replaceAt === 'confirm') assert.equal(calls.length, priorCalls);
+    assert.deepEqual(actionCalls(calls), []);
+  }
+});
+
+test('reply confirmation and use bind the fresh local chatRef as well as unchanged pixels', async () => {
+  const source = { sourceRef: 'message:0123456789abcdef01234567', text: 'bound source', sender: 'Tester', date: '2026-09-11', time: '10:22:33' };
+  for (const replaceAt of ['source-read', 'confirm', 'use']) {
+    let currentRef = replaceAt === 'source-read' ? 'chat:ffffffffffffffffffffffff' : CHAT_REF;
+    const { ui, calls } = fakeEnvironment({
+      states: Array.from({ length: 8 }, (_, index) => replySourceVisualState({ text: source.text, hash: 'a', suffix: `ref-${index}` })),
+      ...visualHelpers(),
+      readChatIdentity: async () => localGuiIdentity(CHAT, 'direct', currentRef),
+    });
+    const capture = () => ui.getReplySourceTarget({ chatRef: CHAT_REF, chatName: CHAT, chatType: 'direct', source });
+    if (replaceAt === 'source-read') {
+      await assert.rejects(capture(), { code: 'LINE_REPLY_SOURCE_STALE' });
+      assert.deepEqual(actionCalls(calls), []);
+      continue;
+    }
+    const pending = await capture();
+    const confirm = () => ui.confirmReplySourceTarget({
+      chatName: CHAT, token: pending.replySourceTarget.token, observedSource: source,
+      sourceRect: { x: 60, y: 130, width: 140, height: 72 }, sourcePoint: { x: 120, y: 164 },
+    });
+    if (replaceAt === 'use') await confirm();
+    currentRef = 'chat:ffffffffffffffffffffffff';
+    const priorCalls = calls.length;
+    await assert.rejects(replaceAt === 'confirm' ? confirm() : ui.messageAction({
+      chatName: CHAT, messageText: source.text, action: 'reply', source, sourceToken: pending.replySourceTarget.token,
+    }), { code: 'LINE_REPLY_SOURCE_STALE' });
+    if (replaceAt === 'confirm') assert.equal(calls.length, priorCalls);
+    assert.deepEqual(actionCalls(calls), []);
+  }
+});
+
 test('a caller-confirmed main header accepts an unlabeled empty rich composer only inside its unique body', async () => {
   const { ui } = fakeEnvironment({
     windows: [CURRENT_MAIN_TARGET],
@@ -1595,6 +1785,48 @@ test('a semantic main header switch before Return leaves the staged draft unsent
   assert.equal(calls.some(call => call.name === 'press_key'), false);
 });
 
+test('a chat switch after set_value cannot verify a draft in another chat', async () => {
+  const text = 'the same draft text does not prove the recipient';
+  for (const method of ['setDraft', 'sendText']) {
+    const { ui, calls } = fakeEnvironment({
+      states: [
+        state([header(), composer('')], 'inspect'),
+        state([header(), composer('')], 'write-initial'),
+        state([header(), composer('')], 'write-before'),
+        state([headerFor('另一個聊天室'), composer(text)], 'switched-after-write'),
+      ],
+    });
+    await assert.rejects(ui[method]({ chatName: CHAT, message: text, autoSend: false }), error =>
+      error?.code === 'LINE_UI_POSTCONDITION_UNAVAILABLE'
+      && error?.operationMayHaveCompleted === true
+      && error?.details?.previousCode === 'LINE_CHAT_STALE'
+      && !/No action was taken/u.test(error.message));
+    assert.equal(calls.filter(call => call.name === 'set_value').length, 1);
+    assert.equal(calls.some(call => call.name === 'press_key'), false);
+  }
+});
+
+test('a chat switch after Return cannot verify dispatch from another empty composer', async () => {
+  const text = 'Return may have reached the other chat';
+  const { ui, calls } = fakeEnvironment({
+    states: [
+      state([header(), composer('')], 'inspect'),
+      state([header(), composer('')], 'write-initial'),
+      state([header(), composer('')], 'write-before'),
+      state([header(), composer(text)], 'write-after'),
+      state([header(), composer(text)], 'return-before'),
+      state([headerFor('另一個聊天室'), composer('')], 'switched-after-return'),
+    ],
+  });
+  await assert.rejects(ui.sendText({ chatName: CHAT, message: text, autoSend: true }), error =>
+    error?.code === 'LINE_UI_POSTCONDITION_UNAVAILABLE'
+    && error?.operationMayHaveCompleted === true
+    && error?.details?.previousCode === 'LINE_CHAT_STALE'
+    && error?.details?.sendDispatched !== false
+    && !/No action was taken/u.test(error.message));
+  assert.equal(calls.filter(call => call.name === 'press_key').length, 1);
+});
+
 test('an uncertain Return transport is not reported as a known skipped dispatch', async () => {
   const text = 'the Return transport may already have reached LINE';
   const uncertain = Object.assign(new Error('transport timed out'), {
@@ -1676,4 +1908,166 @@ test('file-picker failure after an optional draft is reported as partial local s
       && error?.details?.draftMayBeStaged === true
       && error?.details?.pickerMayBeOpen === true,
   );
+});
+
+test('legacy history holds one UI lock and guards the exact main chat around every raw helper', async () => {
+  const trace = [];
+  const { ui, locks } = fakeEnvironment({
+    states: [
+      state([header(), composer('')], 'history-inspect'),
+      state([header(), composer('')], 'history-before-page'),
+      state([header(), composer('')], 'history-after-page'),
+      state([header(), composer('')], 'history-after-copy'),
+    ],
+    trace,
+    innerAutomation: {
+      async pageUp(times) {
+        trace.push(['raw-page-up', times]);
+      },
+      async copyAllChatToClipboard() {
+        trace.push('raw-copy');
+        return 'verified fixture history';
+      },
+    },
+  });
+
+  assert.equal(await ui.readLegacyHistory({ chatName: CHAT, pageUpTimes: 50 }), 'verified fixture history');
+  assert.deepEqual(locks, ['ui-read-legacy-history']);
+  assert.deepEqual(trace, [
+    'list_windows',
+    'get_window_state',
+    'get_window_state',
+    ['raw-page-up', 50],
+    'get_window_state',
+    'raw-copy',
+    'get_window_state',
+  ]);
+});
+
+test('legacy history validates its bounded page count before opening a UI session', async () => {
+  for (const pageUpTimes of [0, 51, 1.5, '5']) {
+    const trace = [];
+    const { ui, locks, automationCalls } = fakeEnvironment({ trace });
+    await assert.rejects(
+      ui.readLegacyHistory({ chatName: CHAT, pageUpTimes }),
+      { code: 'LINE_INVALID_ARGUMENT' },
+    );
+    assert.deepEqual(trace, []);
+    assert.deepEqual(locks, []);
+    assert.deepEqual(automationCalls, []);
+  }
+});
+
+test('legacy history refuses post-page chat drift before clipboard copy', async () => {
+  const rawCalls = [];
+  const { ui } = fakeEnvironment({
+    states: [
+      state([header(), composer('')], 'history-inspect'),
+      state([header(), composer('')], 'history-before-page'),
+      state([headerFor('另一個聊天室'), composer('')], 'history-after-page-drift'),
+    ],
+    innerAutomation: {
+      async pageUp(times) {
+        rawCalls.push(['page-up', times]);
+      },
+      async copyAllChatToClipboard() {
+        rawCalls.push('copy');
+        return 'must not be copied';
+      },
+    },
+  });
+
+  await assert.rejects(
+    ui.readLegacyHistory({ chatName: CHAT, pageUpTimes: 5 }),
+    { code: 'LINE_CHAT_STALE' },
+  );
+  assert.deepEqual(rawCalls, [['page-up', 5]]);
+});
+
+test('legacy history discards copied text when the post-copy chat guard drifts', async () => {
+  const secret = 'text copied from a no-longer-proven chat';
+  const rawCalls = [];
+  const { ui } = fakeEnvironment({
+    states: [
+      state([header(), composer('')], 'history-inspect'),
+      state([header(), composer('')], 'history-before-page'),
+      state([header(), composer('')], 'history-after-page'),
+      state([headerFor('另一個聊天室'), composer('')], 'history-after-copy-drift'),
+    ],
+    innerAutomation: {
+      async pageUp() {
+        rawCalls.push('page-up');
+      },
+      async copyAllChatToClipboard() {
+        rawCalls.push('copy');
+        return secret;
+      },
+    },
+  });
+
+  await assert.rejects(
+    ui.readLegacyHistory({ chatName: CHAT, pageUpTimes: 10 }),
+    error => error?.code === 'LINE_CHAT_STALE' && !JSON.stringify(error).includes(secret),
+  );
+  assert.deepEqual(rawCalls, ['page-up', 'copy']);
+});
+
+test('legacy history leaves a verified detached chat unchanged because raw AHK targets only the main window', async () => {
+  const detached = { ...TARGET, title: CHAT, window_id: 100 };
+  const rawCalls = [];
+  const { ui } = fakeEnvironment({
+    windows: [detached],
+    states: [state([composer('')], 'detached-history')],
+    innerAutomation: {
+      async pageUp() {
+        rawCalls.push('page-up');
+      },
+      async copyAllChatToClipboard() {
+        rawCalls.push('copy');
+        return 'detached text';
+      },
+    },
+  });
+
+  await assert.rejects(
+    ui.readLegacyHistory({ chatName: CHAT, pageUpTimes: 5 }),
+    error => error?.code === 'LINE_HISTORY_TARGET_UNVERIFIED'
+      && error?.operationMayHaveCompleted === false,
+  );
+  assert.deepEqual(rawCalls, []);
+});
+
+test('missing CUA or an unverified main header cannot reach legacy copy or send helpers', async () => {
+  const rawCalls = [];
+  const unavailable = Object.assign(new Error('CUA unavailable'), {
+    code: 'LINE_UI_BACKEND_UNAVAILABLE',
+    operationMayHaveCompleted: false,
+  });
+  const automation = {
+    automation: {
+      async pageUp() { rawCalls.push('page-up'); },
+      async copyAllChatToClipboard() { rawCalls.push('copy'); return 'text'; },
+      async sendMessage() { rawCalls.push('send'); return { success: true }; },
+    },
+  };
+  const missingUi = new LineUi({
+    automation,
+    withClient: async () => { throw unavailable; },
+    runOperation: async (_kind, callback) => callback(),
+  });
+  await assert.rejects(missingUi.readLegacyHistory({ chatName: CHAT, pageUpTimes: 5 }), error => error === unavailable);
+  await assert.rejects(missingUi.sendText({ chatName: CHAT, message: 'not sent', autoSend: true }), error => error === unavailable);
+
+  const unverified = fakeEnvironment({
+    states: Array.from({ length: 4 }, (_, index) => state([
+      element(1, { label: CHAT, role: 'ListItem', semantic_role: 'search-result' }),
+      composer(''),
+    ], `unverified-history-${index}`)),
+    innerAutomation: automation.automation,
+  });
+  await assert.rejects(
+    unverified.ui.readLegacyHistory({ chatName: CHAT, pageUpTimes: 5 }),
+    { code: 'LINE_CHAT_UNVERIFIED' },
+  );
+  assert.deepEqual(rawCalls, []);
 });

@@ -9,6 +9,7 @@ import {
   LineToolError,
   requireChat,
   requireChoice,
+  requireInteger,
   requireText,
 } from './line-runtime.mjs';
 import {
@@ -24,6 +25,7 @@ import {
   selectAccessibleReplyBubble,
 } from './line-quote-binding.mjs';
 import { withLineOperation } from '../automation/line-operation-lock.mjs';
+import { readLocalLineGuiChatIdentity } from './line-local-reader.mjs';
 
 /** The driver-reported application name used to bind every LINE window. */
 export const LINE_APP_NAME = 'LINE.exe';
@@ -170,6 +172,7 @@ export class LineUi {
   constructor({
     automation,
     withClient = withCuaClient,
+    readChatIdentity = readLocalLineGuiChatIdentity,
     runOperation = withLineOperation,
     recognizeImage = recognizeLineImage,
     findImageLabel = findOcrLabel,
@@ -187,6 +190,7 @@ export class LineUi {
     if (typeof runOperation !== 'function') {
       throw new TypeError('runOperation must be a function.');
     }
+    if (typeof readChatIdentity !== 'function') throw new TypeError('readChatIdentity must be a function.');
     if (typeof recognizeImage !== 'function' || typeof findImageLabel !== 'function'
       || typeof fingerprintRegion !== 'function' || typeof imageDimensions !== 'function'
       || typeof randomToken !== 'function' || typeof now !== 'function') {
@@ -194,6 +198,7 @@ export class LineUi {
     }
     this.automation = automation;
     this.withClient = withClient;
+    this.readChatIdentity = readChatIdentity;
     this.runOperation = runOperation;
     this.ocr = { recognizeImage, findImageLabel };
     this.visual = {
@@ -264,6 +269,15 @@ export class LineUi {
       if (!pending || pending.chatName !== chatName) {
         throw new LineToolError('LINE_CHAT_CONFIRMATION_INVALID', 'The visual chat-confirmation token is unknown, expired, or belongs to another chat.');
       }
+      const identity = await this.#requireChatIdentity(chatName);
+      if (!sameLocalChatIdentity(pending.identity, identity)) {
+        this.visual.pending.delete(token);
+        throw new LineToolError('LINE_CHAT_CONFIRMATION_STALE', 'The local chat identity changed. Request a new header view.');
+      }
+      const observedKind = headerMatch.groupMemberCount === undefined ? 'direct' : 'group';
+      if (observedKind !== identity.kind) {
+        throw new LineToolError('LINE_CHAT_CONFIRMATION_INVALID', 'The observed header kind does not match the unique local chat identity.');
+      }
       const fresh = await inspectExactMainWindow(api, pending.target);
       const fingerprint = await captureHeaderFingerprint(fresh.state, fresh.window, this.visual, { includeImage: false });
       if (!fingerprint || !sameHeaderFingerprint(pending.fingerprint, fingerprint)) {
@@ -275,9 +289,10 @@ export class LineUi {
       this.visual.pending.delete(token);
       this.visual.confirmed.set(chatName, {
         chatName,
+        identity,
         target: fresh.target,
         fingerprint,
-        chatType: headerMatch.groupMemberCount === undefined ? 'direct' : 'group',
+        chatType: identity.kind,
         expiresAt: this.#expiresAt(),
       });
       return {
@@ -295,13 +310,19 @@ export class LineUi {
    * a reply source. This does not claim that the local sourceRef is present in
    * LINE UI, and does not choose or click a bubble.
    */
-  async getReplySourceTarget({ chatName, chatType, source } = {}) {
+  async getReplySourceTarget({ chatName, chatType, chatRef, source } = {}) {
     requireChat(chatName);
     requireChoice(chatType, 'chatType', REPLY_CHAT_TYPES);
+    if (typeof chatRef !== 'string' || !/^chat:[0-9a-f]{24}$/u.test(chatRef)) {
+      throw new LineToolError('LINE_INVALID_ARGUMENT', 'The reply source must include its scoped local chatRef.');
+    }
     const expectedSource = requireReplySource(source);
     return this.#run('ui-get-reply-source-target', async () => this.#withVerifiedChat(
       chatName,
       async (api, inspected) => {
+        if (inspected.identity.chatRef !== chatRef) {
+          throw new LineToolError('LINE_REPLY_SOURCE_STALE', 'The message source and current local chat identity differ. No reply action was taken.');
+        }
         const guard = this.#chatGuard(chatName, inspected, { expectedChatType: chatType });
         const state = await snapshot(api, inspected.target, { screenshot: true });
         await assertChatGuard(api, inspected.target, state, guard);
@@ -332,6 +353,11 @@ export class LineUi {
       if (!pending || pending.chatName !== chatName) {
         throw new LineToolError('LINE_REPLY_SOURCE_CONFIRMATION_INVALID', 'The reply-source token is unknown, expired, or belongs to another chat.');
       }
+      const identity = await this.#requireChatIdentity(chatName);
+      if (!sameLocalChatIdentity(pending.identity, identity)) {
+        this.visual.pendingReplySources.delete(token);
+        throw new LineToolError('LINE_REPLY_SOURCE_STALE', 'The local chat identity changed before source confirmation. Request a fresh source view.');
+      }
       assertReplySourceChatTypeBinding(pending);
       if (!sameReplySource(pending.source, observed)) {
         throw new LineToolError(
@@ -340,10 +366,23 @@ export class LineUi {
         );
       }
 
-      const selection = requireReplySourceSelection(
+      const cropSelection = requireReplySourceSelection(
         { sourceRect, sourcePoint },
-        { imageSize: pending.imageBounds, messageBounds: pending.messageBounds },
+        { imageSize: pending.cropBounds, messageBounds: pending.cropBounds },
       );
+      // Public coordinates belong to the returned crop. Keep the original
+      // screenshot coordinates private and translate exactly once at this edge.
+      const selection = {
+        sourceRect: {
+          ...cropSelection.sourceRect,
+          x: cropSelection.sourceRect.x + pending.messageBounds.x,
+          y: cropSelection.sourceRect.y + pending.messageBounds.y,
+        },
+        sourcePoint: {
+          x: cropSelection.sourcePoint.x + pending.messageBounds.x,
+          y: cropSelection.sourcePoint.y + pending.messageBounds.y,
+        },
+      };
       const originalFingerprint = await captureReplySourceFingerprint(
         pending.image,
         selection.sourceRect,
@@ -393,6 +432,7 @@ export class LineUi {
       this.visual.confirmedReplySources.set(token, {
         chatName,
         chatType: pending.chatType,
+        identity,
         source: pending.source,
         target: current.target,
         guard: pending.guard,
@@ -408,8 +448,8 @@ export class LineUi {
         replySourceTarget: {
           token,
           expiresAt: new Date(expiresAt).toISOString(),
-          sourceRect: selection.sourceRect,
-          sourcePoint: selection.sourcePoint,
+          sourceRect: cropSelection.sourceRect,
+          sourcePoint: cropSelection.sourcePoint,
         },
         localSourceRef: pending.source.sourceRef,
         uiSourceRefVerified: false,
@@ -591,6 +631,44 @@ export class LineUi {
     ));
   }
 
+  async readLegacyHistory({ chatName, pageUpTimes = 10 } = {}) {
+    requireChat(chatName);
+    requireInteger(pageUpTimes, 'pageUpTimes', 1, 50);
+    return this.#run('ui-read-legacy-history', async () => this.#withVerifiedChat(
+      chatName,
+      async (api, inspected) => {
+        // The raw AHK history helpers acquire the unique visible top-level
+        // window titled LINE. They cannot bind a detached chat window.
+        if (inspected.window?.title !== 'LINE') {
+          throw new LineToolError(
+            'LINE_HISTORY_TARGET_UNVERIFIED',
+            'Legacy history reading requires an exactly verified main LINE window; the detached chat was left unchanged.',
+            { operationMayHaveCompleted: false },
+          );
+        }
+        const inner = this.automation?.automation;
+        if (typeof inner?.pageUp !== 'function' || typeof inner?.copyAllChatToClipboard !== 'function') {
+          throw new LineToolError(
+            'LINE_AUTOMATION_UNAVAILABLE',
+            'The guarded inner LINE history helpers are unavailable.',
+            { operationMayHaveCompleted: false },
+          );
+        }
+
+        const guard = this.#chatGuard(chatName, inspected);
+        await assertFreshChatGuard(api, inspected.target, guard);
+        await inner.pageUp.call(inner, pageUpTimes);
+        // This fresh proof is both the post-page check and the immediate
+        // pre-copy check. Drift here prevents clipboard access entirely.
+        await assertFreshChatGuard(api, inspected.target, guard);
+        const history = await inner.copyAllChatToClipboard.call(inner);
+        // Never return copied text unless the same chat still proves exact.
+        await assertFreshChatGuard(api, inspected.target, guard);
+        return history;
+      },
+    ));
+  }
+
   async stageFile({ chatName, filePath, optionalMessage } = {}) {
     requireChat(chatName);
     requireText(filePath, 'filePath', 4096);
@@ -621,79 +699,85 @@ export class LineUi {
   }
 
   async #findVerifiedChat(api, chatName, { screenshot = false, expectedChatType } = {}) {
-    // A uniquely titled detached LINE window is already an exact chat target.
-    // Inspect it before the legacy selection wrappers so draft-only work does
-    // not create or focus a second window.
+    const identity = await this.#requireChatIdentity(chatName);
+    if (expectedChatType !== undefined && identity.kind !== expectedChatType) {
+      throw new LineToolError('LINE_REPLY_SOURCE_CHAT_TYPE_MISMATCH', 'The requested reply chat kind differs from the unique local chat identity.');
+    }
+    // Local name uniqueness must be established before even inspecting LINE.
+    // A matching title alone cannot distinguish two same-name conversations.
     const initialWindows = await listLineWindows(api);
     const alreadyOpen = await inspectDetachedChat(api, chatName, { screenshot, lineWindows: initialWindows });
     if (alreadyOpen) {
       if (expectedChatType !== undefined) assertReplySourceChatType(alreadyOpen, expectedChatType);
-      return alreadyOpen;
+      return { ...alreadyOpen, identity };
     }
 
-    let candidate = await inspectMainChat(api, chatName, { screenshot, ocr: this.ocr, lineWindows: initialWindows });
-    let accepted = await this.#acceptMainCandidate(api, chatName, candidate);
+    const candidate = await inspectMainChat(api, chatName, { screenshot, ocr: this.ocr, lineWindows: initialWindows });
+    const accepted = await this.#acceptMainCandidate(api, chatName, candidate, identity);
     if (accepted) {
-      if (expectedChatType !== undefined) assertReplySourceChatType(accepted, expectedChatType);
+      assertReplySourceChatType(accepted, identity.kind);
       return accepted;
     }
-    // A reply-source type comes from the freshly scoped local reader. Do not
-    // invoke the legacy name-only selector when the current exact header is a
-    // different kind or cannot prove a kind at all.
+    // A reply-source type comes from the freshly scoped local reader.
     if (expectedChatType !== undefined) assertReplySourceChatType(candidate, expectedChatType);
-
-    await selectChatWithExistingAutomation(this.automation, chatName);
-    candidate = await inspectMainChat(api, chatName, { screenshot, ocr: this.ocr });
-    accepted = await this.#acceptMainCandidate(api, chatName, candidate);
-    if (accepted) {
-      if (expectedChatType !== undefined) assertReplySourceChatType(accepted, expectedChatType);
-      return accepted;
-    }
 
     throw new LineToolError(
       'LINE_CHAT_UNVERIFIED',
-      'LINE did not expose an exact active-chat header. Request a header view and confirm it before taking chat-scoped action.',
+      'Open the exact authorized chat using a guided LINE UI workflow, then request a header view if needed. Unverified first-result navigation is disabled.',
       candidate ? chatProofDetails(candidate.state, chatName) : {},
     );
   }
 
   async #findChatState(api, chatName, { screenshot = false } = {}) {
+    const identity = await this.#requireChatIdentity(chatName);
     const initialWindows = await listLineWindows(api);
     const alreadyOpen = await inspectDetachedChat(api, chatName, { screenshot, lineWindows: initialWindows });
-    if (alreadyOpen) return { inspected: alreadyOpen };
+    if (alreadyOpen) return { inspected: { ...alreadyOpen, identity } };
 
-    let candidate = await inspectMainChat(api, chatName, { screenshot, ocr: this.ocr, lineWindows: initialWindows });
-    let accepted = await this.#acceptMainCandidate(api, chatName, candidate);
-    if (accepted) return { inspected: accepted };
+    const candidate = await inspectMainChat(api, chatName, { screenshot, ocr: this.ocr, lineWindows: initialWindows });
+    const accepted = await this.#acceptMainCandidate(api, chatName, candidate, identity);
+    if (accepted) {
+      assertReplySourceChatType(accepted, identity.kind);
+      return { inspected: accepted };
+    }
     // A screenshot request is the visual fallback: do not activate/search a
     // possibly different conversation just to manufacture a proof. Return the
     // current structurally proven main header crop; the caller must attest it
     // exactly matches chatName before any later chat-scoped action is allowed.
     if (screenshot && candidate) {
-      return { pending: await this.#createPendingVisualState(chatName, candidate) };
+      return { pending: await this.#createPendingVisualState(chatName, { ...candidate, identity }) };
     }
 
-    await selectChatWithExistingAutomation(this.automation, chatName);
-    candidate = await inspectMainChat(api, chatName, { screenshot, ocr: this.ocr });
-    accepted = await this.#acceptMainCandidate(api, chatName, candidate);
-    if (accepted) return { inspected: accepted };
-    if (screenshot && candidate) {
-      return { pending: await this.#createPendingVisualState(chatName, candidate) };
-    }
     throw new LineToolError(
       'LINE_CHAT_UNVERIFIED',
-      'LINE did not expose an exact active-chat header. Request a header view and confirm it before taking chat-scoped action.',
+      'Open the exact authorized chat using a guided LINE UI workflow, then request a header view if needed. Unverified first-result navigation is disabled.',
       candidate ? chatProofDetails(candidate.state, chatName) : {},
     );
   }
 
-  async #acceptMainCandidate(api, chatName, candidate) {
+  async #requireChatIdentity(chatName) {
+    const result = await this.readChatIdentity({ chatName });
+    if (result?.chatName !== chatName || !/^chat:[0-9a-f]{24}$/u.test(result?.chatRef ?? '')
+      || !REPLY_CHAT_TYPES.includes(result?.chatIdentity?.kind)
+      || result.chatIdentity.displayName !== chatName || result.chatIdentity.uiIdentityVerified !== false
+      || result.chatIdentity.guiDisplayNameUnique !== true || result.scope?.kind !== 'local_gui_chat_identity'
+      || result.count !== 0 || !Array.isArray(result.messages) || result.messages.length !== 0) {
+      throw new LineToolError('LINE_CHAT_IDENTITY_UNVERIFIED', 'A complete unique local chat identity is required before inspecting or operating LINE.');
+    }
+    return Object.freeze({ chatRef: result.chatRef, kind: result.chatIdentity.kind });
+  }
+
+  async #acceptMainCandidate(api, chatName, candidate, identity) {
     if (!candidate) return undefined;
-    if (candidate.proof) return candidate;
+    if (candidate.proof) return { ...candidate, identity };
 
     this.#pruneVisualRecords();
     const confirmed = this.visual.confirmed.get(chatName);
     if (!confirmed || !sameTarget(confirmed.target, candidate.target)) return undefined;
+    if (!sameLocalChatIdentity(confirmed.identity, identity)) {
+      this.visual.confirmed.delete(chatName);
+      throw new LineToolError('LINE_CHAT_CONFIRMATION_STALE', 'The local chat identity changed after header confirmation. Request a new header view.');
+    }
     if (!REPLY_CHAT_TYPES.includes(confirmed.chatType)) {
       this.visual.confirmed.delete(chatName);
       return undefined;
@@ -706,6 +790,7 @@ export class LineUi {
     }
     return {
       ...fresh,
+      identity,
       fingerprint,
       proof: {
         kind: 'cached-caller-confirmed-main-header-crop',
@@ -716,7 +801,10 @@ export class LineUi {
   }
 
   #chatGuard(chatName, inspected, options) {
-    return createChatGuard(chatName, inspected, this.ocr, this.visual, options);
+    const expectedChatType = inspected.proof.kind === 'exact-top-level-window-title'
+      ? undefined : inspected.identity.kind;
+    return { ...createChatGuard(chatName, inspected, this.ocr, this.visual, { expectedChatType, ...options }),
+      identity: inspected.identity };
   }
 
   async #createPendingVisualState(chatName, candidate) {
@@ -733,6 +821,7 @@ export class LineUi {
     const expiresAt = this.#expiresAt();
     this.visual.pending.set(token, {
       chatName,
+      identity: candidate.identity,
       target: candidate.target,
       fingerprint: withoutHeaderImage(fingerprint),
       expiresAt,
@@ -753,7 +842,8 @@ export class LineUi {
   async #createPendingReplySourceTarget(chatName, source, inspected, guard, state) {
     assertReplySourceChatTypeBinding({ chatType: guard?.chatType, guard });
     const view = replySourceVisualView(state, inspected.window, guard, this.visual);
-    if (!view) {
+    const image = view ? await captureReplyViewImage(view, this.visual) : undefined;
+    if (!image) {
       throw new LineToolError(
         'LINE_REPLY_SOURCE_UNVERIFIED',
         'LINE did not expose one bounded message area between the verified chat header and composer. Use a fresh guided visual workflow instead of guessing a reply point.',
@@ -762,8 +852,10 @@ export class LineUi {
     this.#pruneVisualRecords();
     const token = this.#newVisualToken();
     const expiresAt = this.#expiresAt();
+    const cropBounds = { x: 0, y: 0, width: view.messageBounds.width, height: view.messageBounds.height };
     this.visual.pendingReplySources.set(token, {
       chatName,
+      identity: inspected.identity,
       chatType: guard.chatType,
       source,
       target: inspected.target,
@@ -771,6 +863,7 @@ export class LineUi {
       image: view.image,
       imageBounds: view.imageBounds,
       messageBounds: view.messageBounds,
+      cropBounds,
       expiresAt,
     });
     return {
@@ -779,15 +872,15 @@ export class LineUi {
       replySourceTarget: {
         token,
         expiresAt: new Date(expiresAt).toISOString(),
-        imageBounds: view.imageBounds,
-        messageBounds: view.messageBounds,
+        imageBounds: cropBounds,
+        messageBounds: cropBounds,
         selectionRequired: ['sourceRect', 'sourcePoint'],
       },
       localSourceRef: source.sourceRef,
       uiSourceRefVerified: false,
       sourceIdentityVerification: 'visual-selection-pending',
       confidence: 'pending',
-      images: [view.image],
+      images: [image],
     };
   }
 
@@ -801,7 +894,8 @@ export class LineUi {
       this.visual.confirmedReplySources.delete(sourceToken);
       throw error;
     }
-    if (!sameTarget(binding.target, inspected.target)) {
+    if (!sameLocalChatIdentity(binding.identity, inspected.identity) || !sameTarget(binding.target, inspected.target)) {
+      this.visual.confirmedReplySources.delete(sourceToken);
       throw new LineToolError('LINE_REPLY_SOURCE_STALE', 'The verified LINE chat target changed after source confirmation. No reply action was taken.');
     }
     // A source-target token is deliberately consumed before its right-click
@@ -863,21 +957,8 @@ export class LineUi {
   }
 }
 
-async function selectChatWithExistingAutomation(automation, chatName) {
-  for (const method of ['activateLine', 'selectChat']) {
-    if (typeof automation[method] !== 'function') {
-      throw new LineToolError('LINE_AUTOMATION_UNAVAILABLE', `Existing LINE automation does not implement ${method}.`);
-    }
-  }
-
-  const activation = await automation.activateLine();
-  if (activation?.success !== true) {
-    throw new LineToolError('LINE_FOCUS_UNAVAILABLE', 'LINE activation was not verified by the existing automation.');
-  }
-  const selected = await automation.selectChat(chatName);
-  if (selected !== true) {
-    throw new LineToolError('LINE_CHAT_NOT_FOUND', 'The existing LINE automation could not select the requested exact chat.');
-  }
+function sameLocalChatIdentity(left, right) {
+  return Boolean(left && right && left.chatRef === right.chatRef && left.kind === right.kind);
 }
 
 async function activateForegroundFeature(automation) {
@@ -1622,7 +1703,7 @@ function withoutHeaderImage(value) {
  * region intentionally excludes every header, sidebar, composer, dialog, and
  * menu surface; it is not an inferred screen ratio.
  */
-function replySourceVisualView(state, window, guard, visual) {
+function replySourceVisualView(state, window, guard, visual, { includeComposer = false } = {}) {
   const images = Array.isArray(state?.images) ? state.images : [];
   if (images.length !== 1 || !images[0] || typeof images[0] !== 'object') return undefined;
   let dimensions;
@@ -1640,25 +1721,28 @@ function replySourceVisualView(state, window, guard, visual) {
   const band = bands[0];
   const rootFrame = findScreenshotRootFrame(state, window, band);
   if (!rootFrame) return undefined;
-  let composer;
-  try {
-    composer = findComposer(state, {
-      allowMainStructuralFallback: isVerifiedMainChatGuard(guard),
-      guard,
-    });
-  } catch {
-    return undefined;
+  let logicalMessageBounds = band.bodyFrame;
+  if (!includeComposer) {
+    let composer;
+    try {
+      composer = findComposer(state, {
+        allowMainStructuralFallback: isVerifiedMainChatGuard(guard),
+        guard,
+      });
+    } catch {
+      return undefined;
+    }
+    const composerFrame = elementFrame(composer?.element);
+    if (!composerFrame || !rectInside(composerFrame, band.bodyFrame)) return undefined;
+    const bottom = composerFrame.y - 2;
+    if (bottom - band.bodyFrame.y < 40) return undefined;
+    logicalMessageBounds = {
+      x: band.bodyFrame.x,
+      y: band.bodyFrame.y,
+      width: band.bodyFrame.width,
+      height: bottom - band.bodyFrame.y,
+    };
   }
-  const composerFrame = elementFrame(composer?.element);
-  if (!composerFrame || !rectInside(composerFrame, band.bodyFrame)) return undefined;
-  const bottom = composerFrame.y - 2;
-  if (bottom - band.bodyFrame.y < 40) return undefined;
-  const logicalMessageBounds = {
-    x: band.bodyFrame.x,
-    y: band.bodyFrame.y,
-    width: band.bodyFrame.width,
-    height: bottom - band.bodyFrame.y,
-  };
   const messageBounds = frameInScreenshot(logicalMessageBounds, rootFrame, dimensions);
   if (!messageBounds) return undefined;
   return {
@@ -1668,6 +1752,16 @@ function replySourceVisualView(state, window, guard, visual) {
     messageBounds,
     rootFrame,
   };
+}
+
+async function captureReplyViewImage(view, visual) {
+  try {
+    const crop = await visual.fingerprintRegion(view.image, view.messageBounds, { includeImage: true });
+    return validHeaderFingerprint(crop, view.messageBounds, true, visual.imageDimensions)
+      ? crop.image : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 async function captureReplySourceFingerprint(image, region, visual) {
@@ -2067,12 +2161,15 @@ async function runUiInput(api, target, resolve, toolName, args = {}, {
   });
   try {
     const after = await snapshot(api, target, { screenshot: screenshot || chatGuardNeedsScreenshot(guard) });
+    // A matching composer value cannot establish which chat received input.
+    // Post-input failures are uncertain even when the pre-input guard passed.
+    await assertChatGuard(api, target, after, guard);
     return { target, before, after, result, resolved };
   } catch (afterError) {
-    if (!allowTargetClosedAfter) {
+    if (!allowTargetClosedAfter || guard) {
       throw new LineToolError(
         'LINE_UI_POSTCONDITION_UNAVAILABLE',
-        `CUA ${toolName} returned, but LINE could not be observed afterward. Inspect LINE before retrying.`,
+        `CUA ${toolName} returned, but the resulting LINE state could not be verified. Inspect LINE before retrying.`,
         { operationMayHaveCompleted: true, previousCode: afterError?.code ?? afterError?.name ?? null },
       );
     }
@@ -3098,7 +3195,7 @@ async function runMessageAction(
       replySurface = findReplySurface(selectedState, messageText, composerConfig);
     } catch (error) {
       if (replySourceBinding) {
-        return pendingVisualReplyQuoteResult(
+        return await pendingVisualReplyQuoteResult(
           chatName,
           inspected,
           replySourceBinding,
@@ -3106,6 +3203,9 @@ async function runMessageAction(
           raw,
           replyText,
           error,
+          api,
+          composerConfig?.guard,
+          visual,
         );
       }
       throw error;
@@ -3235,12 +3335,14 @@ function replySourceBindingResult(binding) {
   };
 }
 
-function pendingVisualReplyQuoteResult(chatName, inspected, binding, state, raw, replyText, error) {
-  const images = Array.isArray(state?.images) ? state.images.filter(image => image?.type === 'image') : [];
-  if (images.length !== 1) {
+async function pendingVisualReplyQuoteResult(chatName, inspected, binding, state, raw, replyText, error, api, guard, visual) {
+  await assertChatGuard(api, inspected.target, state, guard);
+  const view = replySourceVisualView(state, inspected.window, guard, visual, { includeComposer: true });
+  const image = view ? await captureReplyViewImage(view, visual) : undefined;
+  if (!image) {
     throw new LineToolError(
       'LINE_REPLY_UNVERIFIED',
-      'LINE may have opened a reply context, but no fresh screenshot was available for visual verification. Inspect LINE before retrying.',
+      'LINE may have opened a reply context, but no verified chat-only screenshot crop was available. Inspect LINE before retrying.',
       { operationMayHaveCompleted: true, previousCode: error?.code ?? error?.name ?? null },
     );
   }
@@ -3265,7 +3367,7 @@ function pendingVisualReplyQuoteResult(chatName, inspected, binding, state, raw,
     confidence: 'pending',
     ...replySourceBindingResult(binding),
     raw,
-    images,
+    images: [image],
   };
 }
 

@@ -161,6 +161,80 @@ test('generated Windows send scripts bind input to an exact focused LINE HWND an
   );
 });
 
+test('history copy snapshots and restores the prior ClipboardAll object before returning copied text', async () => {
+  const automation = new WindowsLineAutomation();
+  let script;
+  automation.runAhk = async value => {
+    script = value;
+    return 'verified history text';
+  };
+
+  assert.equal(await automation.copyAllChatToClipboard(), 'verified history text');
+  for (const fragment of [
+    'savedClipboard := ClipboardAll()',
+    'OnExit RestoreClipboardOnExit',
+    'A_Clipboard := ""',
+    'copyOwnerPid := ClipboardOwnerProcessId()',
+    'chatHistory := A_Clipboard',
+    'ownedClipboardSequence := copySequence',
+    'A_Clipboard := savedClipboard',
+    'savedClipboard := ""',
+    'FileAppend chatHistory, "*"',
+  ]) assert.ok(script.includes(fragment), `missing clipboard transaction fragment: ${fragment}`);
+
+  assert.ok(script.indexOf('savedClipboard := ClipboardAll()') < script.indexOf('A_Clipboard := ""'));
+  assert.ok(script.indexOf('copyOwnerPid := ClipboardOwnerProcessId()') < script.indexOf('chatHistory := A_Clipboard'));
+  assert.ok(script.indexOf('chatHistory := A_Clipboard') < script.indexOf('ownedClipboardSequence := copySequence'));
+  assert.ok(script.indexOf('restoreStatus := RestoreOwnedClipboard()') < script.indexOf('FileAppend chatHistory, "*"'));
+  assert.doesNotMatch(script, /FileAppend A_Clipboard, "\*"/);
+});
+
+test('history copy registers non-cancelling restoration before guarded copy can exit', async () => {
+  const automation = new WindowsLineAutomation();
+  const guarded = Object.assign(new Error('guarded copy stopped'), { code: 'LINE_FOCUS_CHANGED' });
+  let script;
+  automation.runAhk = async value => {
+    script = value;
+    throw guarded;
+  };
+
+  await assert.rejects(automation.copyAllChatToClipboard(), error => error === guarded);
+  assert.ok(script.indexOf('OnExit RestoreClipboardOnExit') < script.indexOf('A_Clipboard := ""'));
+  assert.ok(script.indexOf('OnExit RestoreClipboardOnExit') < script.indexOf('GuardedLineSend(target, "^c")'));
+  assert.match(script, /RestoreClipboardOnExit\(\*\)\s*\{\s*RestoreOwnedClipboard\(\)\s*\}/u);
+});
+
+test('history copy accepts only LINE-owned clipboard text and refuses any newer foreign sequence', async () => {
+  const automation = new WindowsLineAutomation();
+  let script;
+  automation.runAhk = async value => {
+    script = value;
+    return 'verified history text';
+  };
+  await automation.copyAllChatToClipboard();
+
+  for (const fragment of [
+    'DllCall("User32.dll\\GetClipboardSequenceNumber", "UInt")',
+    'DllCall("User32.dll\\GetClipboardOwner", "Ptr")',
+    'DllCall("User32.dll\\GetWindowThreadProcessId", "Ptr", ownerHwnd, "UInt*", &ownerPid, "UInt")',
+    'ownedClipboardSequence := ClipboardSequenceNumber()',
+    'copySequence := ClipboardSequenceNumber()',
+    'copyOwnerPid := ClipboardOwnerProcessId()',
+    'copyOwnerPid != target.pid',
+    'LINE_CLIPBOARD_SOURCE_UNVERIFIED',
+    'ClipboardSequenceNumber() != copySequence',
+    'ClipboardOwnerProcessId() != target.pid',
+    'LINE_CLIPBOARD_SOURCE_CHANGED',
+    'currentSequence != ownedClipboardSequence',
+  ]) assert.ok(script.includes(fragment), `missing clipboard ownership fragment: ${fragment}`);
+  assert.match(script, /if \(currentSequence != ownedClipboardSequence\) \{\s*clipboardMutated := false\s*savedClipboard := ""\s*return 0\s*\}/u);
+  assert.match(script, /restoreStatus := RestoreOwnedClipboard\(\)\s*if \(restoreStatus = 0\)\s*LINE_GUARD_FAIL\("LINE_CLIPBOARD_SOURCE_CHANGED"\)/u);
+  assert.ok(script.indexOf('copyOwnerPid := ClipboardOwnerProcessId()') < script.indexOf('chatHistory := A_Clipboard'));
+  assert.ok(script.indexOf('chatHistory := A_Clipboard') < script.indexOf('ClipboardSequenceNumber() != copySequence'));
+  assert.ok(script.indexOf('ClipboardSequenceNumber() != copySequence') < script.indexOf('ownedClipboardSequence := copySequence'));
+  assert.ok(script.indexOf('currentSequence != ownedClipboardSequence') < script.indexOf('A_Clipboard := savedClipboard'));
+});
+
 test('file staging uses an exact LINE-owned native dialog, verifies the selected path, and never confirms Open', async () => {
   const automation = new WindowsLineAutomation();
   const scripts = [];

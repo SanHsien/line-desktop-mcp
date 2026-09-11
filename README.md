@@ -1,4 +1,4 @@
-<p align="center"><img src="docs/assets/line-agent-cover.png" alt="LINE Agent MCP v2.0.0 — Text + images. Context, faster." width="100%"></p>
+<p align="center"><img src="docs/assets/line-agent-cover-v3.png" alt="LINE Agent MCP v3.0.0 — Text + images. Context, faster." width="100%"></p>
 
 # LINE Agent MCP
 
@@ -8,15 +8,17 @@
 
 [繁體中文](README.md) · [English](docs/README.en.md) · [日本語](docs/README.ja.md) · [ภาษาไทย](docs/README.th.md) · [Bahasa Indonesia](docs/README.id.md)
 
-[下載 v2.0.0](https://github.com/bensonmaxai/line-desktop-mcp/releases/tag/v2.0.0) · [五語更新說明](docs/releases/README.md) · [安裝指南](docs/quickstart-windows.md) · [工具與限制](docs/windows-extensions.md)
+[下載 v3.0.0](https://github.com/bensonmaxai/line-desktop-mcp/releases/tag/v3.0.0) · [五語更新說明](docs/releases/README.md) · [安裝指南](docs/quickstart-windows.md) · [工具與限制](docs/windows-extensions.md)
 
 這是 **LINE Agent MCP**，由 [bensonmaxai](https://github.com/bensonmaxai/line-desktop-mcp) 維護的 Windows 社群版，建立在 [dtwang/line-desktop-mcp](https://github.com/dtwang/line-desktop-mcp) 之上。透過本機 MCP 連接已登入的 LINE Desktop，日常以 Codex 使用，也能搭配其他支援本機 MCP 的客戶端。本專案與 LINE 官方無關。
 
-Windows 啟用 `LINE_MCP_EXTENSIONS=1` 後提供 **29 個工具**。未啟用時保留原本 **5 個工具**；macOS 也維持原本介面。
+Windows 啟用 `LINE_MCP_EXTENSIONS=1` 後提供 **29 個工具**。未啟用時列出 **5 個工具**。名稱與輸入 schema 保留；macOS 也會列出這五個工具，但本版讀取／發送功能不可用。
 
-## v2.0 可以做什麼
+**v3.0.0 安全更新：** Windows 所有指定聊天室的 GUI 操作（含預設五工具）都需要 CUA 與本機讀取器。先用不讀訊息的本機中繼資料核對唯一聊天室，再驗證已開啟的 LINE 標頭；不再自動點搜尋第一筆。macOS 讀取／發送目前會在自動化前拒絕。引用截圖限定指定聊天室、APNG 僅輸出首幀；GUI 歷史複製在沒有其他寫入者介入時恢復先前剪貼簿。[更新說明](docs/releases/v3.0.0.zh-TW.md) · [升級與回退](docs/MIGRATING.md#upgrading-to-v300)
 
-| 工作 | v2.0.0 的能力 |
+## 可以做什麼
+
+| 工作 | v3.0.0 的能力 |
 | --- | --- |
 | 追蹤進度 | 從指定群組或個人對話的本機 DB/WAL 讀取文字與附件資訊；一次最多 31 天，可分頁追查 |
 | 看圖理解上下文 | 需要時才解碼快取圖片；回傳可供模型讀取的圖片區塊，縮圖與原圖、缺失與延後處理都有標示 |
@@ -37,7 +39,7 @@ Windows 啟用 `LINE_MCP_EXTENSIONS=1` 後提供 **29 個工具**。未啟用時
 ## 安裝與升級
 
 ```powershell
-git clone --branch v2.0.0 --depth 1 https://github.com/bensonmaxai/line-desktop-mcp.git
+git clone --branch v3.0.0 --depth 1 https://github.com/bensonmaxai/line-desktop-mcp.git
 cd line-desktop-mcp
 npm ci --ignore-scripts
 ```
@@ -49,11 +51,11 @@ npm ci --ignore-scripts
 | 啟動／能力清單 | Node.js 24 LTS 或更新版本；本版測試使用 24.19.0 |
 | 本機對話讀取 | Windows x64、已登入且版本在允許清單內的 LINE、Python x64、`cryptography`、Pillow、固定雜湊的 SQLite3MC DLL |
 | 圖片預覽 | 使用上述讀取環境，由 Pillow 解碼 |
-| 介面操作／傳送 | 相容的 CUA Driver；依路徑使用 AutoHotkey v2 與 Windows 本機 OCR |
+| 介面操作／傳送 | 上述本機讀取環境與相容的 CUA Driver；依路徑使用 AutoHotkey v2 與 Windows 本機 OCR |
 
 本機讀取必須明確設定 `LINE_MCP_PYTHON` 與 `LINE_MCP_SQLITE3MC_DLL`；介面操作使用 `LINE_MCP_CUA_DRIVER`。伺服器啟動不會自行安裝依賴、讀取聊天或修改全域設定。完整步驟、固定 DLL 來源與 MCP 設定見[安裝指南](docs/quickstart-windows.md)。
 
-**原 v1.2.0 使用者可沿同一個專案升級。** v2.0.0 保留 MCP 名稱與原本 5 個工具；新增本機讀取依賴，引用回覆改用完整 `source` 與一次性 `sourceToken`。更新後重新連線並刷新工具 schema。LINE 帳號與聊天資料不需搬移。[升級與回退指南](docs/MIGRATING.md)
+**v1.2.0／v2.0.0 使用者可沿同一個專案升級。** MCP 名稱、五個預設工具名稱與輸入 schema 保留，但 Windows GUI 操作新增必要依賴，`open_line_chat` 改為驗證已開啟的聊天室，macOS 讀取／發送不可用。保留舊目錄與設定、在新目錄安裝後切換啟動器，並重新連線、刷新工具 schema。LINE 帳號與聊天資料不需搬移。[完整升級與回退指南](docs/MIGRATING.md)
 
 本專案透過 GitHub 原始碼 tag 與 `.tgz` 發布，未發布至 npm registry，也未提供 MCPB。舊套件 `line-desktop-mcp@latest` 不會安裝本專案。
 
@@ -61,9 +63,9 @@ npm ci --ignore-scripts
 
 ![本機核心讀取實測比較](docs/assets/performance.svg)
 
-同一台維護者電腦上，文字歷史的冷讀核心由 **17.866 秒降至 4.661 秒**；重啟驗收後，持續 MCP 連線的暖讀約 **0.732–0.803 秒**。圖片解碼、Codex 路由、模型處理及介面操作還會增加時間，這些數字不是所有電腦的速度保證。
+以下是 v2.0.0 時期同一台維護者電腦的量測，並非 v3.0.0 新基準。文字歷史的冷讀核心由 **17.866 秒降至 4.661 秒**；重啟驗收後，持續 MCP 連線的暖讀約 **0.732–0.803 秒**。圖片解碼、Codex 路由、模型處理及介面操作還會增加時間，這些數字不是所有電腦的速度保證。
 
-兩次實際 LINE 重啟後均成功讀取指定範圍；實際圖片已通過 MCP 傳輸、獨立解碼與雜湊核對。引用回覆、真實提及、投票與普通文字傳送有各自的實測紀錄，不能互相替代驗證。[詳細驗證範圍](docs/windows-extensions.md#verification)
+v2.0.0 時期的兩次實際 LINE 重啟後均成功讀取指定範圍；實際圖片已通過 MCP 傳輸、獨立解碼與雜湊核對。引用回覆、真實提及、投票與普通文字傳送有各自的實測紀錄，不能互相替代驗證。本次安全更新以合成回歸、原生 SQLite3MC 與 AHK 語法驗證；未重做實際聊天讀取或傳送。[詳細驗證範圍](docs/windows-extensions.md#verification)
 
 ```powershell
 npm test
@@ -78,7 +80,7 @@ npm run test:python
 - 日期篩選與投票計畫目前固定採 **Asia/Taipei（UTC+08:00）**。
 - 本機讀取需要對已登入 LINE 程序進行受限的唯讀記憶體存取，以取得該工作階段的解碼資料；未知版本或存取遭拒時停止。
 - 目前實測 Windows LINE **26.4.2.3957，繁體中文介面**；五語文件不代表五種 LINE UI 語言都已通過實機驗證。
-- 支援 PNG/JPEG、GIF/WebP 首幀及小型 PCM WAV 區塊；其他已辨識的音訊、影片與檔案以資訊回傳，沒有通用播放、轉錄或檔案擷取功能。
+- 支援 PNG/JPEG、GIF/WebP/APNG 首幀及小型 PCM WAV 區塊；其他已辨識的音訊、影片與檔案以資訊回傳，沒有通用播放、轉錄或檔案擷取功能。
 - 文字存在不等於對方收到或已讀；提及通知需另外核對真實藍色 token。傳送結果不確定時不自動重送。
 - 解碼與 OCR 在本機執行；回傳的工具內容仍由你的 AI 客戶端及模型依其設定處理。
 

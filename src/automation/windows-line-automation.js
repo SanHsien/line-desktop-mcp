@@ -374,6 +374,54 @@ ${script}
   async copyAllChatToClipboard() {
     const script = `
       ${HISTORY_AHK_GUARDS}
+      ClipboardSequenceNumber() {
+        return DllCall("User32.dll\\GetClipboardSequenceNumber", "UInt")
+      }
+
+      ClipboardOwnerProcessId() {
+        ownerHwnd := DllCall("User32.dll\\GetClipboardOwner", "Ptr")
+        if !ownerHwnd
+          return 0
+        ownerPid := 0
+        ownerThread := DllCall("User32.dll\\GetWindowThreadProcessId", "Ptr", ownerHwnd, "UInt*", &ownerPid, "UInt")
+        if (!ownerThread || !ownerPid)
+          return 0
+        return ownerPid
+      }
+
+      RestoreOwnedClipboard() {
+        global savedClipboard, clipboardMutated, ownedClipboardSequence
+        if !clipboardMutated
+          return 1
+        currentSequence := ClipboardSequenceNumber()
+        if (ownedClipboardSequence = 0)
+          return -1
+        ; A changed sequence may belong to another clipboard writer. Preserve
+        ; it instead of replacing it with our older saved formats. Win32 has
+        ; no atomic compare-and-restore primitive, so a writer can still race
+        ; after this comparison.
+        if (currentSequence != ownedClipboardSequence) {
+          clipboardMutated := false
+          savedClipboard := ""
+          return 0
+        }
+        try {
+          A_Clipboard := savedClipboard
+        } catch {
+          return -1
+        }
+        clipboardMutated := false
+        savedClipboard := ""
+        return 1
+      }
+
+      ; OnExit callbacks must return zero or empty, otherwise they can cancel
+      ; an ordinary ExitApp. This wrapper deliberately ignores the helper's
+      ; status while still covering guard and runtime exits after mutation.
+      RestoreClipboardOnExit(*) {
+        RestoreOwnedClipboard()
+      }
+
       target := AcquireExactLineTarget()
       ; Preserve the original second history focus click, but only on the
       ; same guarded right-edge rail used by pageUp.
@@ -381,11 +429,40 @@ ${script}
       Sleep ${this.delayShort}
       GuardedLineSend(target, "^a")
       Sleep ${this.delayMid}
+      ; Snapshot the available clipboard formats immediately before temporary
+      ; use. The sequence checks preserve foreign updates observed before
+      ; cleanup; they do not control clipboard history or observers.
+      savedClipboard := ClipboardAll()
+      clipboardMutated := false
+      ownedClipboardSequence := 0
+      OnExit RestoreClipboardOnExit
+      clipboardMutated := true
       A_Clipboard := ""
+      ownedClipboardSequence := ClipboardSequenceNumber()
+      if (ownedClipboardSequence = 0)
+        LINE_GUARD_FAIL("LINE_CLIPBOARD_SEQUENCE_UNAVAILABLE")
       GuardedLineSend(target, "^c")
       ClipWait 2
-      if (A_Clipboard != "") {
-        FileAppend A_Clipboard, "*"
+      copySequence := ClipboardSequenceNumber()
+      copyOwnerPid := ClipboardOwnerProcessId()
+      if (copySequence = 0)
+        LINE_GUARD_FAIL("LINE_CLIPBOARD_SEQUENCE_UNAVAILABLE")
+      ; Ctrl+C must produce a new clipboard version owned by the exact LINE
+      ; process. Otherwise another writer (or our sentinel clear) won the race.
+      if (copySequence = ownedClipboardSequence || copyOwnerPid != target.pid)
+        LINE_GUARD_FAIL("LINE_CLIPBOARD_SOURCE_UNVERIFIED")
+      chatHistory := A_Clipboard
+      ; Bracket the read so a foreign write during adoption is detected too.
+      if (ClipboardSequenceNumber() != copySequence || ClipboardOwnerProcessId() != target.pid)
+        LINE_GUARD_FAIL("LINE_CLIPBOARD_SOURCE_CHANGED")
+      ownedClipboardSequence := copySequence
+      restoreStatus := RestoreOwnedClipboard()
+      if (restoreStatus = 0)
+        LINE_GUARD_FAIL("LINE_CLIPBOARD_SOURCE_CHANGED")
+      if (restoreStatus < 0)
+        LINE_GUARD_FAIL("LINE_CLIPBOARD_RESTORE_FAILED")
+      if (chatHistory != "") {
+        FileAppend chatHistory, "*"
       } else {
         FileAppend "ERROR: Clipboard is empty", "*"
       }

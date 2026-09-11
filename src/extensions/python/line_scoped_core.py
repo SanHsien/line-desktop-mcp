@@ -5,6 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import unicodedata
 
 TZ = dt.timezone(dt.timedelta(hours=8))
 
@@ -16,7 +17,7 @@ class ReaderError(Exception):
 
 
 def validate_scope(args):
-    if not isinstance(args, dict) or set(args) - {'chatName', 'chatType', 'dateFrom', 'dateTo', 'messageLimit', 'query', 'cursor', 'mediaMode', 'mediaSourceRefs', 'identityOnly'}:
+    if not isinstance(args, dict) or set(args) - {'chatName', 'chatType', 'dateFrom', 'dateTo', 'messageLimit', 'query', 'cursor', 'mediaMode', 'mediaSourceRefs', 'identityOnly', 'guiIdentityOnly'}:
         raise ReaderError('INVALID_SCOPE')
     chat = args.get('chatName')
     if not isinstance(chat, str) or not 1 <= len(chat) <= 200 or chat != chat.strip() or any(ord(c) < 32 for c in chat):
@@ -44,6 +45,11 @@ def validate_scope(args):
     refs = args.get('mediaSourceRefs')
     if 'identityOnly' in args and (args['identityOnly'] is not True or mode != 'metadata'
                                   or any(key in args for key in ('query', 'cursor', 'mediaSourceRefs'))):
+        raise ReaderError('INVALID_SCOPE')
+    if 'guiIdentityOnly' in args and (args['guiIdentityOnly'] is not True
+                                     or args.get('identityOnly') is not True
+                                     or mode != 'metadata'
+                                     or any(key in args for key in ('query', 'cursor', 'mediaSourceRefs'))):
         raise ReaderError('INVALID_SCOPE')
     if mode not in ('metadata', 'preview') or ('mediaSourceRefs' in args and (
             mode != 'preview' or not isinstance(refs, list) or not 1 <= len(refs) <= 20
@@ -113,7 +119,7 @@ def object_metadata(value):
     try:
         decoded = json.loads(value)
         return decoded if isinstance(decoded, (dict, list)) else None
-    except (ValueError, UnicodeError):
+    except (ValueError, UnicodeError, RecursionError):
         return None
 
 
@@ -208,18 +214,112 @@ def resolve_chat(connection, args):
                      'uiIdentityVerified': False}
 
 
+GUI_INVENTORY_PAGE = 1000
+GUI_INVENTORY_MAX_ROWS = 10000
+
+
+def gui_name_family(value):
+    """Conservative approximation of names the LINE GUI may render alike."""
+    if (not isinstance(value, str) or not 1 <= len(value) <= 200
+            or any(ord(char) < 32 and not char.isspace() for char in value)):
+        raise ReaderError('GUI_IDENTITY_UNAVAILABLE')
+    try:
+        compact = ''.join(char for char in unicodedata.normalize('NFC', value)
+                          if not char.isspace() and char != '\ufeff')
+    except (TypeError, ValueError):
+        raise ReaderError('GUI_IDENTITY_UNAVAILABLE') from None
+    if not compact:
+        raise ReaderError('GUI_IDENTITY_UNAVAILABLE')
+    while True:
+        suffix = re.search(r'\([0-9]+\)$', compact)
+        if suffix is None or suffix.start() == 0:
+            return compact
+        compact = compact[:suffix.start()]
+
+
+def _valid_gui_inventory_id(value):
+    return (isinstance(value, str) and 1 <= len(value) <= 200
+            and not any(char.isspace() or char == '\ufeff' or ord(char) < 32 for char in value))
+
+
+def _gui_inventory(connection):
+    queries = (
+        ('group', 'SELECT _chatMid, _chatName FROM _groupChat '
+                  'ORDER BY _chatMid, _chatName LIMIT ? OFFSET ?'),
+        ('direct', 'SELECT c._mid, CASE '
+                   "WHEN c._displayNameOverridden IS NULL OR c._displayNameOverridden = '' "
+                   'THEN c._displayName ELSE c._displayNameOverridden END '
+                   'FROM _contact c JOIN _chat h ON h._id = c._mid '
+                   'WHERE h._midType = 0 '
+                   'ORDER BY c._mid, c._displayNameOverridden, c._displayName LIMIT ? OFFSET ?'),
+    )
+    total = 0
+    for kind, sql in queries:
+        offset = 0
+        while True:
+            try:
+                rows = connection.execute(sql, (GUI_INVENTORY_PAGE, offset)).fetchall()
+            except Exception:
+                raise ReaderError('GUI_IDENTITY_UNAVAILABLE') from None
+            if not isinstance(rows, list) or len(rows) > GUI_INVENTORY_PAGE:
+                raise ReaderError('GUI_IDENTITY_UNAVAILABLE')
+            total += len(rows)
+            if total > GUI_INVENTORY_MAX_ROWS:
+                raise ReaderError('GUI_IDENTITY_UNAVAILABLE')
+            for row in rows:
+                if not isinstance(row, (tuple, list)) or len(row) != 2:
+                    raise ReaderError('GUI_IDENTITY_UNAVAILABLE')
+                chat_id, name = row
+                if not _valid_gui_inventory_id(chat_id):
+                    raise ReaderError('GUI_IDENTITY_UNAVAILABLE')
+                gui_name_family(name)
+                yield kind, chat_id, name
+            if len(rows) < GUI_INVENTORY_PAGE:
+                break
+            offset += len(rows)
+
+
+def resolve_gui_chat(connection, args):
+    """Require one exact raw target and one identity in its whole GUI name family."""
+    identities = {}
+    families = {}
+    exact = set()
+    for kind, chat_id, name in _gui_inventory(connection):
+        identity = (kind, chat_id)
+        previous = identities.get(identity)
+        if previous is not None and previous != name:
+            raise ReaderError('GUI_IDENTITY_UNAVAILABLE')
+        identities[identity] = name
+        families.setdefault(gui_name_family(name), set()).add(identity)
+        if name == args['chatName']:
+            exact.add(identity)
+    if not exact:
+        raise ReaderError('CHAT_NOT_FOUND')
+    if len(exact) != 1:
+        raise ReaderError('CHAT_AMBIGUOUS')
+    identity = next(iter(exact))
+    if families.get(gui_name_family(args['chatName'])) != {identity}:
+        raise ReaderError('CHAT_AMBIGUOUS')
+    kind, chat_id = identity
+    return chat_id, {'kind': kind, 'displayName': args['chatName'],
+                     'uiIdentityVerified': False, 'guiDisplayNameUnique': True}
+
+
 def read_scoped(connection, args, snapshot, media_resolver=None, *,
                 message_budget_bytes=3*1024*1024, preview_budget_bytes=1024*1024, media_item_limit=20):
     """connection.execute(sql, parameters).fetchall(); only fixed, scoped SQL."""
     args, start, end = validate_scope(args)
-    chat_id, chat_identity = resolve_chat(connection, args)
+    gui_identity_only = args.get('guiIdentityOnly') is True
+    chat_id, chat_identity = (resolve_gui_chat(connection, args) if gui_identity_only
+                              else resolve_chat(connection, args))
     chat_ref = reference('chat', chat_id)
     if args.get('identityOnly') is True:
         return {'ok': True, 'chatName': args['chatName'], 'chatRef': chat_ref,
                 'chatIdentity': chat_identity, 'count': 0, 'messages': [],
                 'pagination': {'hasMore': False, 'nextCursor': None},
                 'retrievedAt': dt.datetime.now(TZ).isoformat(),
-                'scope': {'kind': 'local_chat_identity', 'requested': args, 'timezone': 'Asia/Taipei',
+                'scope': {'kind': 'local_gui_chat_identity' if gui_identity_only else 'local_chat_identity',
+                          'requested': args, 'timezone': 'Asia/Taipei',
                           'totalHistoryKnown': False, 'truncated': False, 'snapshot': snapshot},
                 'warnings': ['Identity lookup only; no message records or media were read.']}
     where = '_chatId = ? AND _createdTime >= ? AND _createdTime < ?'

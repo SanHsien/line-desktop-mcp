@@ -75,6 +75,159 @@ class ScopeTests(unittest.TestCase):
             with self.assertRaises(core.ReaderError):
                 core.validate_scope({**self.args, **changed})
 
+    def test_gui_identity_only_requires_the_private_identity_shape(self):
+        for changed in [
+            {'guiIdentityOnly': True},
+            {'identityOnly': True, 'guiIdentityOnly': False},
+            {'identityOnly': True, 'guiIdentityOnly': True, 'query': 'x'},
+            {'identityOnly': True, 'guiIdentityOnly': True, 'cursor': 'bad'},
+            {'identityOnly': True, 'guiIdentityOnly': True, 'mediaMode': 'preview'},
+            {'identityOnly': True, 'guiIdentityOnly': True,
+             'mediaMode': 'preview', 'mediaSourceRefs': ['message:' + 'a' * 24]},
+        ]:
+            with self.subTest(changed=changed), self.assertRaises(core.ReaderError) as caught:
+                core.validate_scope({**self.args, **changed})
+            self.assertEqual(caught.exception.code, 'INVALID_SCOPE')
+
+    def test_gui_identity_refuses_duplicate_groups_directs_and_cross_kind_even_with_kind_hint(self):
+        gui = {**self.args, 'identityOnly': True, 'guiIdentityOnly': True}
+
+        self.db.execute('INSERT INTO _groupChat VALUES (?,?)', ('duplicate', 'Synthetic Group'))
+        with self.assertRaises(core.ReaderError) as caught:
+            core.read_scoped(self.db, gui, {})
+        self.assertEqual(caught.exception.code, 'CHAT_AMBIGUOUS')
+        self.db.execute('DELETE FROM _groupChat WHERE _chatMid=?', ('duplicate',))
+
+        self.db.execute('INSERT INTO _chat VALUES (?,?)', ('u1', 0))
+        self.db.execute('INSERT INTO _contact VALUES (?,?,?)', ('u2', None, 'Synthetic Direct 😀'))
+        self.db.execute('INSERT INTO _chat VALUES (?,?)', ('u2', 0))
+        direct_gui = {**gui, 'chatName': 'Synthetic Direct 😀', 'chatType': 'direct'}
+        with self.assertRaises(core.ReaderError) as caught:
+            core.read_scoped(self.db, direct_gui, {})
+        self.assertEqual(caught.exception.code, 'CHAT_AMBIGUOUS')
+        self.db.execute('DELETE FROM _contact WHERE _mid=?', ('u2',))
+        self.db.execute('DELETE FROM _chat WHERE _id=?', ('u2',))
+
+        self.db.execute('INSERT INTO _contact VALUES (?,?,?)', ('u3', None, 'Synthetic Group'))
+        self.db.execute('INSERT INTO _chat VALUES (?,?)', ('u3', 0))
+        with self.assertRaises(core.ReaderError) as caught:
+            core.read_scoped(self.db, {**gui, 'chatType': 'group'}, {})
+        self.assertEqual(caught.exception.code, 'CHAT_AMBIGUOUS')
+
+    def test_gui_identity_refuses_nfc_whitespace_and_repeated_numeric_suffix_aliases(self):
+        gui = {**self.args, 'identityOnly': True, 'guiIdentityOnly': True}
+        aliases = [
+            ('Café', 'Cafe\u0301'),
+            ('SpaceName', 'Space\u00a0\ufeffName'),
+            ('SuffixName', 'SuffixName(2)(3)'),
+        ]
+        for index, (group_name, direct_name) in enumerate(aliases):
+            with self.subTest(group_name=group_name, direct_name=direct_name):
+                group_id, direct_id = f'g-alias-{index}', f'u-alias-{index}'
+                self.db.execute('INSERT INTO _groupChat VALUES (?,?)', (group_id, group_name))
+                self.db.execute('INSERT INTO _contact VALUES (?,?,?)', (direct_id, None, direct_name))
+                self.db.execute('INSERT INTO _chat VALUES (?,?)', (direct_id, 0))
+                with self.assertRaises(core.ReaderError) as caught:
+                    core.read_scoped(self.db, {**gui, 'chatName': group_name}, {})
+                self.assertEqual(caught.exception.code, 'CHAT_AMBIGUOUS')
+                self.db.execute('DELETE FROM _groupChat WHERE _chatMid=?', (group_id,))
+                self.db.execute('DELETE FROM _contact WHERE _mid=?', (direct_id,))
+                self.db.execute('DELETE FROM _chat WHERE _id=?', (direct_id,))
+
+        self.db.execute('INSERT INTO _groupChat VALUES (?,?)', ('g-literal', 'LiteralName'))
+        self.db.execute('INSERT INTO _contact VALUES (?,?,?)', ('u-literal', None, 'LiteralName(2)'))
+        self.db.execute('INSERT INTO _chat VALUES (?,?)', ('u-literal', 0))
+        with self.assertRaises(core.ReaderError) as caught:
+            core.read_scoped(self.db, {**gui, 'chatName': 'LiteralName(2)'}, {})
+        self.assertEqual(caught.exception.code, 'CHAT_AMBIGUOUS')
+
+    def test_gui_identity_fails_closed_for_malformed_inventory_rows_and_schema(self):
+        gui = {**self.args, 'identityOnly': True, 'guiIdentityOnly': True}
+
+        self.db.execute('INSERT INTO _groupChat VALUES (?,?)', (None, 'Malformed ID'))
+        with self.assertRaises(core.ReaderError) as caught:
+            core.read_scoped(self.db, gui, {})
+        self.assertEqual(caught.exception.code, 'GUI_IDENTITY_UNAVAILABLE')
+        self.db.execute('DELETE FROM _groupChat WHERE _chatMid IS NULL')
+
+        self.db.execute('INSERT INTO _contact VALUES (?,?,?)', ('u-empty', None, '\u00a0\ufeff'))
+        self.db.execute('INSERT INTO _chat VALUES (?,?)', ('u-empty', 0))
+        with self.assertRaises(core.ReaderError) as caught:
+            core.read_scoped(self.db, gui, {})
+        self.assertEqual(caught.exception.code, 'GUI_IDENTITY_UNAVAILABLE')
+        self.db.execute('DELETE FROM _contact WHERE _mid=?', ('u-empty',))
+        self.db.execute('DELETE FROM _chat WHERE _id=?', ('u-empty',))
+
+        class Rows:
+            def fetchall(self):
+                return [('c1', 'Synthetic Group', 'unexpected')]
+        class MalformedConnection:
+            def execute(self, sql, params=()):
+                return Rows()
+        with self.assertRaises(core.ReaderError) as caught:
+            core.read_scoped(MalformedConnection(), gui, {})
+        self.assertEqual(caught.exception.code, 'GUI_IDENTITY_UNAVAILABLE')
+
+        self.db.execute('DROP TABLE _contact')
+        with self.assertRaises(core.ReaderError) as caught:
+            core.read_scoped(self.db, gui, {})
+        self.assertEqual(caught.exception.code, 'GUI_IDENTITY_UNAVAILABLE')
+
+    def test_gui_identity_requires_complete_inventory_and_enforces_total_cap(self):
+        gui = {**self.args, 'identityOnly': True, 'guiIdentityOnly': True}
+
+        class Rows:
+            def __init__(self, rows):
+                self.rows = rows
+            def fetchall(self):
+                return self.rows
+        class IncompleteConnection:
+            def execute(self, sql, params=()):
+                if 'FROM _groupChat' in sql and params[-1] == 0:
+                    return Rows([(f'g{n:04}', f'Group {n}') for n in range(1000)])
+                raise core.ReaderError('RESULT_TOO_LARGE')
+        with self.assertRaises(core.ReaderError) as caught:
+            core.read_scoped(IncompleteConnection(), gui, {})
+        self.assertEqual(caught.exception.code, 'GUI_IDENTITY_UNAVAILABLE')
+
+        self.db.executemany('INSERT INTO _groupChat VALUES (?,?)',
+                            ((f'over-{n:05}', f'Over cap {n}') for n in range(10001)))
+        with self.assertRaises(core.ReaderError) as caught:
+            core.read_scoped(self.db, gui, {})
+        self.assertEqual(caught.exception.code, 'GUI_IDENTITY_UNAVAILABLE')
+
+    def test_gui_identity_pages_complete_inventory_and_reads_no_messages(self):
+        self.db.execute('DELETE FROM _groupChat WHERE _chatMid=?', ('c1',))
+        self.db.executemany('INSERT INTO _groupChat VALUES (?,?)',
+                            ((f'g-page-{n:04}', f'Unrelated {n}') for n in range(1005)))
+        self.db.execute('INSERT INTO _groupChat VALUES (?,?)', ('z-target', 'Synthetic Group'))
+        self.db.execute('INSERT INTO _chat VALUES (?,?)', ('u1', 0))
+        self.add('private-message', self.start)
+        self.db.set_authorizer(lambda action, table, column, database, trigger:
+                               sqlite3.SQLITE_DENY if action == sqlite3.SQLITE_READ and table == '_message'
+                               else sqlite3.SQLITE_OK)
+
+        result = core.read_scoped(self.db, {**self.args, 'identityOnly': True,
+                                            'guiIdentityOnly': True}, {})
+        self.assertEqual(result['chatRef'], core.reference('chat', 'z-target'))
+        self.assertEqual(result['chatIdentity'], {
+            'kind': 'group', 'displayName': 'Synthetic Group',
+            'uiIdentityVerified': False, 'guiDisplayNameUnique': True,
+        })
+        self.assertEqual(result['scope']['kind'], 'local_gui_chat_identity')
+        self.assertTrue(result['scope']['requested']['guiIdentityOnly'])
+        self.assertEqual(result['count'], 0)
+        self.assertEqual(result['messages'], [])
+        self.assertEqual(result['pagination'], {'hasMore': False, 'nextCursor': None})
+        self.assertNotIn('g-page-0000', str(result))
+        self.assertNotIn('Unrelated 0', str(result))
+
+        direct = core.read_scoped(self.db, {**self.args, 'chatName': 'Synthetic Direct 😀',
+                                            'identityOnly': True, 'guiIdentityOnly': True}, {})
+        self.assertEqual(direct['chatRef'], core.reference('chat', 'u1'))
+        self.assertEqual(direct['chatIdentity']['kind'], 'direct')
+        self.assertTrue(direct['chatIdentity']['guiDisplayNameUnique'])
+
     def test_direct_chat_requires_exact_effective_contact_name_and_chat_row(self):
         self.db.execute('INSERT INTO _chat VALUES (?,?)', ('u1', 0))
         self.add('direct', self.start, chat='u1')
@@ -136,6 +289,38 @@ class ScopeTests(unittest.TestCase):
         result = core.metadata_shape(b'{"mediaKey":"never-print-this","path":"private"}')
         self.assertEqual(result['keys'],['mediaKey','path'])
         self.assertNotIn('never-print-this',str(result))
+
+    def test_deep_json_metadata_fails_closed_for_text_and_utf8_bytes(self):
+        nested_array = '[' * 4000 + '0' + ']' * 4000
+        nested_object = '{"k":' * 4000 + '0' + '}' * 4000
+        for value in (nested_array,nested_array.encode(),nested_object,nested_object.encode()):
+            with self.subTest(value_type=type(value).__name__,opening=value[:1]):
+                self.assertLessEqual(len(value),256*1024)
+                self.assertIsNone(core.object_metadata(value))
+
+    def test_scoped_read_keeps_valid_row_beside_deep_malformed_metadata(self):
+        self.add('valid',self.start,text='@All notice')
+        valid_metadata = json.dumps({'MENTION': json.dumps({'MENTIONEES': [
+            {'A':'1','S':'0','E':'4'}]})})
+        self.db.execute('UPDATE _message SET _contentMetadata=?, _contentInfo=? WHERE _id=?',
+                        (valid_metadata,b'[1,{"ok":true}]','valid'))
+        self.add('deep',self.start+1,text='ordinary text')
+        deep_metadata = '{"k":' * 4000 + '0' + '}' * 4000
+        deep_info = ('[' * 4000 + '0' + ']' * 4000).encode()
+        self.db.execute('UPDATE _message SET _contentMetadata=?, _contentInfo=? WHERE _id=?',
+                        (deep_metadata,deep_info,'deep'))
+
+        result = core.read_scoped(self.db,self.args,{})
+        messages = {message['sourceMessageId']:message for message in result['messages']}
+        self.assertEqual(set(messages),{'valid','deep'})
+        self.assertEqual(messages['valid']['mentions']['state'],'recognized_all')
+        self.assertEqual(messages['valid']['media']['metadata']['format'],'json-object')
+        self.assertEqual(messages['valid']['media']['info'],{'format':'json-array','length':2})
+        self.assertEqual(messages['deep']['mentions']['state'],'unrecognized')
+        self.assertEqual(messages['deep']['media']['metadata'],
+                         {'format':'str','bytes':len(deep_metadata)})
+        self.assertEqual(messages['deep']['media']['info'],
+                         {'format':'bytes','bytes':len(deep_info)})
 
     def test_stored_all_mentions_require_metadata_not_plain_text(self):
         def meta(entries):

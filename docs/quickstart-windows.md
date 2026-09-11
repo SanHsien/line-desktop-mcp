@@ -2,7 +2,7 @@
 
 [Project home](../README.md) · [Features](features.md) · [Upgrade and rollback](MIGRATING.md)
 
-This guide installs **LINE Agent MCP v2.0.0** from the maintained
+This guide installs **LINE Agent MCP v3.0.0** from the maintained
 [bensonmaxai/line-desktop-mcp](https://github.com/bensonmaxai/line-desktop-mcp)
 repository. The display name is LINE Agent MCP; the package and MCP server name
 remain `line-desktop-mcp`.
@@ -11,8 +11,8 @@ Examples use `C:\Tools`. Use an equivalent local, user-owned directory if that
 path does not suit your machine. Keep the checkout, virtual environment,
 downloaded archives, and extracted binaries outside OneDrive.
 
-This release is distributed from its GitHub tag (and, when supplied on that
-release, its release archive). It is **not** published to the npm registry and
+This release is distributed from its GitHub tag and the attached
+`line-desktop-mcp-3.0.0.tgz` with `SHA256SUMS.txt`. It is **not** published to the npm registry and
 does not provide an MCPB bundle. Do not install `line-desktop-mcp@latest` from
 npm: it is not this release.
 
@@ -20,10 +20,10 @@ npm: it is not this release.
 
 | What you want to use | Requirement |
 | --- | --- |
-| Base MCP server | Node.js 24 LTS or newer. The package requires Node >= 24.0.0; v2.0.0 was tested with Node 24.19.0 and pins @modelcontextprotocol/sdk 1.29.0. |
-| Windows extension catalogue | Set `LINE_MCP_EXTENSIONS=1`. This exposes 29 Windows tools. Without that exact value, the original five default descriptors remain; macOS also keeps those five. |
+| Base MCP server | Node.js 24 LTS or newer. The package requires Node >= 24.0.0; v3.0.0 was tested with Node 24.19.0 and pins @modelcontextprotocol/sdk 1.29.0. |
+| Windows extension catalogue | Set `LINE_MCP_EXTENSIONS=1`. This exposes 29 Windows tools. Without that exact value, five default descriptors remain; their names, order, and input schemas are retained, while their availability descriptions are updated for v3. macOS also lists those five descriptors. |
 | Local text and media context | Windows x64, a signed-in LINE Desktop process whose build is in the shipped allowlist, a 64-bit Python, both required Python packages, and the pinned SQLite3MC DLL described below. LINE Desktop 26.4.2.3957 was the tested build. |
-| GUI-oriented tools | A separately installed CUA Driver, AutoHotkey v2 for the legacy GUI helper paths, and local Windows OCR only when the selected path needs it. |
+| Named-chat GUI tools | Every Windows named-chat GUI path, including the five defaults, requires a separately installed CUA Driver plus the local-reader Python/DLL prerequisites. AutoHotkey v2 is required only by legacy GUI helper paths; local Windows OCR is required only when the selected path uses it. |
 
 The reader refuses an unknown LINE build with `LINE_BUILD_UNVERIFIED`; it does
 not attempt to guess compatibility. A signed-in LINE process is required for
@@ -41,13 +41,13 @@ the [upgrade guide](MIGRATING.md) uses a sibling checkout so rollback stays
 available.
 
 ~~~powershell
-git clone --branch v2.0.0 --depth 1 https://github.com/bensonmaxai/line-desktop-mcp.git C:\Tools\line-desktop-mcp
-Set-Location C:\Tools\line-desktop-mcp
+git clone --branch v3.0.0 --depth 1 https://github.com/bensonmaxai/line-desktop-mcp.git C:\Tools\line-desktop-mcp-v3
+Set-Location C:\Tools\line-desktop-mcp-v3
 git describe --exact-match --tags
 npm ci --ignore-scripts
 ~~~
 
-`git describe` should print `v2.0.0`. The lockfile is included, so use
+`git describe` should print `v3.0.0`. The lockfile is included, so use
 `npm ci --ignore-scripts`, not an unpinned registry install. `--ignore-scripts`
 keeps package lifecycle scripts from running during installation.
 
@@ -74,10 +74,10 @@ absolute Python path below.
 
 ~~~powershell
 $basePython = 'C:\Tools\Python312\python.exe'
-$venv = 'C:\Tools\line-desktop-mcp\.venv'
+$venv = 'C:\Tools\line-desktop-mcp-v3\.venv'
 & $basePython -m venv $venv
 $readerPython = Join-Path $venv 'Scripts\python.exe'
-& $readerPython -m pip install -r C:\Tools\line-desktop-mcp\src\extensions\python\requirements.txt
+& $readerPython -m pip install -r C:\Tools\line-desktop-mcp-v3\src\extensions\python\requirements.txt
 & $readerPython -c "import platform, cryptography, PIL; print(platform.architecture()[0], cryptography.__version__, PIL.__version__)"
 ~~~
 
@@ -116,11 +116,45 @@ $sqliteDll
 The last line must print the full path to `sqlite3mc_x64.dll`. Keep that path
 for `LINE_MCP_SQLITE3MC_DLL`; it must be an absolute `.dll` path.
 
-## 3. Optional GUI prerequisites
+## 3. Named-chat GUI prerequisites
 
-The local reader works without the CUA Driver. GUI-oriented operations need the
-following separately maintained components; this project does not install them,
-change PATH, or run a persistent service.
+Pure local database reading works without the CUA Driver. In v3.0.0, however,
+every Windows GUI operation scoped to a named chat—including each of the five
+default descriptors—requires `LINE_MCP_CUA_DRIVER`, `LINE_MCP_PYTHON`, and the
+pinned `LINE_MCP_SQLITE3MC_DLL`. This project does not install those components,
+change PATH, or run a persistent service. An unavailable prerequisite refuses
+the GUI operation; it does not silently use a less-verified compatibility path.
+
+Before a CUA LINE-window listing/state read/input or any AutoHotkey/clipboard
+activity, a private fresh metadata-only lookup must resolve one complete, unique
+identity: an exact raw group name or an exact effective contact name with an
+existing direct-chat row. It reads no message rows or media. NFC-equivalent
+spellings, trimmed or collapsed whitespace, and group member-count suffixes are
+not aliases. Missing, ambiguous, incomplete, or cross-type matches fail closed.
+CUA connection and tool negotiation may occur before this identity gate.
+
+`open_line_chat` verifies an authorized chat that is already open. Open the chat
+first through user-controlled or guided LINE UI navigation; it never selects the
+first search result. The active-chat guard checks before input and after it
+completes. If the bridge cannot maintain identity certainty, it refuses the
+operation without automatically continuing or retrying. Snapshot uniqueness plus
+a fresh UI header is not an atomic database-ID-to-UI mapping, so wait for LINE to
+settle after a concurrent rename or chat creation before retrying.
+
+Tool/capability metadata remains callable without chat-identity proof, and
+`get_line_status` preserves independent local-reader status when GUI status is
+unavailable. Pure local DB history retains its reader prerequisites but needs no
+CUA; the poll reader retains its established local-group identity and CUA
+requirements. macOS still lists five descriptors, but legacy reads and sends
+return `LINE_CHAT_VERIFICATION_UNAVAILABLE` before automation or clipboard
+activity because it has no verified local active-chat reader.
+
+Legacy history accepts only clipboard text owned by the bound LINE process. The
+helper restores the prior available clipboard formats only while its owned
+sequence is unchanged. A foreign update is preserved and the history read
+refuses. Clipboard History or listeners may still retain the transient copy, and
+a small compare/restore race remains. See [v3 upgrade and compatibility
+notes](MIGRATING.md#upgrading-to-v300).
 
 ### CUA Driver 0.23.2
 
@@ -178,11 +212,11 @@ the complete Windows extension setup:
     "line-desktop-mcp": {
       "command": "C:/Tools/node/node.exe",
       "args": [
-        "C:/Tools/line-desktop-mcp/src/server.js"
+        "C:/Tools/line-desktop-mcp-v3/src/server.js"
       ],
       "env": {
         "LINE_MCP_EXTENSIONS": "1",
-        "LINE_MCP_PYTHON": "C:/Tools/line-desktop-mcp/.venv/Scripts/python.exe",
+        "LINE_MCP_PYTHON": "C:/Tools/line-desktop-mcp-v3/.venv/Scripts/python.exe",
         "LINE_MCP_SQLITE3MC_DLL": "C:/Tools/line-desktop-mcp-runtime/sqlite3mc-2.5.1/dll/sqlite3mc_x64.dll",
         "LINE_MCP_CUA_DRIVER": "C:/Tools/line-desktop-mcp-runtime/cua-driver-rs-0.23.2/cua-driver.exe",
         "LINE_MCP_AUTOHOTKEY": "C:/Program Files/AutoHotkey/v2/AutoHotkey64.exe"
@@ -201,14 +235,15 @@ For a new Codex registration, the same values can be supplied with quoted
 PowerShell arguments:
 
 ~~~powershell
-codex mcp add line-desktop-mcp --env "LINE_MCP_EXTENSIONS=1" --env "LINE_MCP_PYTHON=C:/Tools/line-desktop-mcp/.venv/Scripts/python.exe" --env "LINE_MCP_SQLITE3MC_DLL=C:/Tools/line-desktop-mcp-runtime/sqlite3mc-2.5.1/dll/sqlite3mc_x64.dll" --env "LINE_MCP_CUA_DRIVER=C:/Tools/line-desktop-mcp-runtime/cua-driver-rs-0.23.2/cua-driver.exe" --env "LINE_MCP_AUTOHOTKEY=C:/Program Files/AutoHotkey/v2/AutoHotkey64.exe" -- "C:\Tools\node\node.exe" "C:\Tools\line-desktop-mcp\src\server.js"
+codex mcp add line-desktop-mcp --env "LINE_MCP_EXTENSIONS=1" --env "LINE_MCP_PYTHON=C:/Tools/line-desktop-mcp-v3/.venv/Scripts/python.exe" --env "LINE_MCP_SQLITE3MC_DLL=C:/Tools/line-desktop-mcp-runtime/sqlite3mc-2.5.1/dll/sqlite3mc_x64.dll" --env "LINE_MCP_CUA_DRIVER=C:/Tools/line-desktop-mcp-runtime/cua-driver-rs-0.23.2/cua-driver.exe" --env "LINE_MCP_AUTOHOTKEY=C:/Program Files/AutoHotkey/v2/AutoHotkey64.exe" -- "C:\Tools\node\node.exe" "C:\Tools\line-desktop-mcp-v3\src\server.js"
 ~~~
 
-If you only want the original five tools, omit `LINE_MCP_EXTENSIONS` entirely
-and reconnect the MCP client. With extensions enabled, leave the reader paths
-configured for local context and the CUA/AHK paths configured for GUI work;
-each affected operation reports its own unavailable prerequisite rather than
-silently taking another route.
+If you only want the five default descriptors, omit `LINE_MCP_EXTENSIONS`
+entirely and reconnect the MCP client. Their names, order, and input schemas
+remain, but that does not bypass the v3 named-chat GUI identity gate. With
+extensions enabled, leave the reader paths configured for local context and the
+CUA/AHK paths configured for GUI work; each affected operation reports its own
+unavailable prerequisite rather than silently taking another route.
 
 ## 5. Reconnect and verify without reading a chat
 
@@ -237,8 +272,8 @@ replace the dependency checks above.
 For a synthetic local verification after setup:
 
 ~~~powershell
-Set-Location C:\Tools\line-desktop-mcp
-$env:LINE_MCP_PYTHON = 'C:\Tools\line-desktop-mcp\.venv\Scripts\python.exe'
+Set-Location C:\Tools\line-desktop-mcp-v3
+$env:LINE_MCP_PYTHON = 'C:\Tools\line-desktop-mcp-v3\.venv\Scripts\python.exe'
 $env:LINE_MCP_SQLITE3MC_DLL = 'C:\Tools\line-desktop-mcp-runtime\sqlite3mc-2.5.1\dll\sqlite3mc_x64.dll'
 npm test
 npm run test:python
@@ -246,7 +281,11 @@ npm run test:python
 
 The included runners use sanitized synthetic fixtures and do not read real
 chats or send LINE messages. Python tests require the configured reader
-environment.
+environment. Pre-release security verification recorded 221/221 Node checks, 101 passing
+Python checks plus one symlink-related skip (102 total), nine native SQLite
+checks, and an AutoHotkey parser pass. The new v3 GUI identity flow was not
+live end-to-end tested against LINE; do not treat these results as live GUI
+evidence.
 
 ## First context request
 
@@ -262,7 +301,8 @@ LINE UI.
 
 If the returned page identifies relevant image `sourceRef` values, make a
 second request using `mediaMode: "preview"` and only those refs from that same
-page. PNG and JPEG previews are supported; GIF and WebP use their first frame.
+page. PNG and JPEG previews are supported; APNG, GIF, and WebP use their first
+frame.
 Small PCM WAV blocks can be returned, while video, general audio playback,
 transcription, and arbitrary file extraction are not features of this bridge.
 
@@ -278,4 +318,5 @@ short-lived visual source-attestation token, not a general permission token or
 send approval.
 
 See [Features](features.md) for behavior and limits, or
-[Upgrade and rollback](MIGRATING.md) when moving from v1.2.0.
+[Upgrade and rollback](MIGRATING.md#upgrading-to-v300) when moving from v1.2.0
+or v2.0.0.

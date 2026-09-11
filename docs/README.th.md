@@ -1,4 +1,4 @@
-![LINE Agent MCP v2.0.0](assets/line-agent-cover.png)
+![LINE Agent MCP v3.0.0](assets/line-agent-cover-v3.png)
 
 # LINE Agent MCP
 
@@ -8,11 +8,13 @@
 
 [繁體中文](../README.md) · [English](README.en.md) · [日本語](README.ja.md) · [ภาษาไทย](README.th.md) · [Bahasa Indonesia](README.id.md)
 
-[ดาวน์โหลด v2.0.0](https://github.com/bensonmaxai/line-desktop-mcp/releases/tag/v2.0.0) · [บันทึกการอัปเดต](releases/v2.0.0.th.md) · [การติดตั้ง](quickstart-windows.md) · [การอัปเกรดและย้อนกลับ](MIGRATING.md) · [ข้อกำหนดทางเทคนิค](windows-extensions.md)
+[ดาวน์โหลด v3.0.0](https://github.com/bensonmaxai/line-desktop-mcp/releases/tag/v3.0.0) · [บันทึกการอัปเดต](releases/v3.0.0.th.md) · [การติดตั้ง](quickstart-windows.md) · [อัปเกรดเป็น v3.0.0](MIGRATING.md#upgrading-to-v300) · [ข้อกำหนดทางเทคนิค](windows-extensions.md)
 
 **LINE Agent MCP** คือรุ่นชุมชนสำหรับ Windows ที่ดูแลโดย [bensonmaxai](https://github.com/bensonmaxai/line-desktop-mcp) และพัฒนาต่อยอดจาก [โครงการต้นฉบับของ Geoffrey Wang](https://github.com/dtwang/line-desktop-mcp) โครงการนี้เชื่อม MCP client ภายในเครื่องกับ LINE Desktop ที่ลงชื่อเข้าใช้แล้ว ใช้ Codex เป็น client ประจำได้ และ local MCP client อื่นก็เชื่อมต่อได้เช่นกัน โครงการนี้ไม่มีความเกี่ยวข้องกับ LINE อย่างเป็นทางการ
 
-บน Windows ให้ตั้งค่า `LINE_MCP_EXTENSIONS=1` เพื่อใช้ **29 tools** หากไม่ตั้งค่านี้ จะคง **5 tools** เดิมไว้ และ macOS ก็ยังคงอินเทอร์เฟซเดิม
+บน Windows ให้ตั้งค่า `LINE_MCP_EXTENSIONS=1` เพื่อใช้ **29 tools** หากไม่ตั้งค่านี้ จะคง **5 tools ค่าเริ่มต้น** เป็น descriptors ไว้ โดยชื่อ ลำดับ และ input schema ไม่เปลี่ยน macOS ก็แสดงทั้ง 5 ชื่อนี้เช่นกัน แต่รีลีสนี้ไม่รองรับการอ่าน การส่ง หรือการทำงานกับไฟล์
+
+**รุ่นความปลอดภัย v3.0.0 (12 กันยายน 2026):** เส้นทาง GUI บน Windows ทุกเส้นทางสำหรับแชตที่ระบุชื่อ รวมทั้ง 5 tools ค่าเริ่มต้น ต้องใช้ CUA และ local reader ที่กำหนดค่าไว้ การตรวจสอบ metadata แบบส่วนตัวจะไม่อ่านข้อความหรือสื่อ ยืนยันได้เพียงกลุ่มหรือ direct chat เดิมที่มีชื่อไม่ซ้ำ แล้วตรวจสอบส่วนหัว LINE ใหม่ของแชตที่ได้รับอนุญาตซึ่งผู้ใช้หรือ UI แบบมีผู้ใช้กำกับเปิดไว้ก่อน `open_line_chat` ใช้เพื่อตรวจสอบเท่านั้น และจะไม่เปิดผลการค้นหารายการแรกโดยอัตโนมัติ macOS ยังคงมี 5 descriptors แต่การอ่านแชต การส่ง และไฟล์จะถูกปฏิเสธด้วย `LINE_CHAT_VERIFICATION_UNAVAILABLE` จึงไม่มีการรองรับการใช้งานจริงบน macOS [ขั้นตอนอัปเกรด](MIGRATING.md#upgrading-to-v300)
 
 ## หนึ่งบทสนทนา ครบหนึ่งเวิร์กโฟลว์
 
@@ -20,7 +22,7 @@
 
 ขอให้ผู้ช่วยตรวจสอบแชตที่ระบุชื่อและรายงานความคืบหน้าปัจจุบัน ผู้ช่วยจะอ่านขอบเขตที่ได้รับอนุญาต อ้างอิงแหล่งข้อมูลธุรกิจที่อนุญาตแยกต่างหากเมื่อจำเป็น และแสดงร่างข้อความที่ตรงตามจริงในบทสนทนากับผู้ช่วย เมื่อคุณยืนยันผู้รับและเนื้อหาแล้ว จึงส่งและตรวจสอบผลลัพธ์ได้ โดยไม่ต้องใช้ workbench แยกต่างหาก
 
-| งาน | สิ่งที่ v2.0.0 ให้ได้ |
+| งาน | สิ่งที่ v3.0.0 ให้ได้ |
 | --- | --- |
 | ติดตามงาน | ประวัติภายในเครื่องของแชตกลุ่ม/แชตส่วนตัวที่ตรงกัน วันที่ที่ระบุชัดเจน สูงสุด 31 วัน การแบ่งหน้า และความใหม่ของ snapshot |
 | ทำความเข้าใจไฟล์แนบ | ตัวอย่างภาพจากแคชเมื่อต้องการ บล็อก PCM WAV ขนาดเล็ก และสถานะความพร้อมของสื่อที่ระบุชัดเจน |
@@ -31,47 +33,47 @@
 
 ร่างข้อความธรรมดาจะได้รับการตรวจทานใน Codex เอเจนต์ทำการตรวจสอบ UI ด้วยภาพ แต่การ mention จริงและการเปลี่ยนแปลงเนื้อหาที่แชร์ยังต้องใช้เวิร์กโฟลว์และการอนุมัติของแต่ละงาน แผนงานไม่ใช่หลักฐานว่าการกระทำเกิดขึ้นแล้ว
 
-## การติดตั้งและการอัปเกรดจาก v1.2.0
+## การติดตั้งและอัปเกรดเป็น v3.0.0
 
-หากต้องการใช้ไดเรกทอรีทำงานแยกต่างหาก ให้รับ repository เดิมที่ tag v2.0.0:
+หากต้องการใช้ไดเรกทอรีทำงานแยกต่างหาก ให้รับ repository เดิมที่ tag v3.0.0:
 
 ```powershell
-git clone --branch v2.0.0 --depth 1 https://github.com/bensonmaxai/line-desktop-mcp.git
+git clone --branch v3.0.0 --depth 1 https://github.com/bensonmaxai/line-desktop-mcp.git
 cd line-desktop-mcp
 npm ci --ignore-scripts
 ```
 
-หากอัปเกรด `line-desktop-mcp` v1.2.0 ที่มีอยู่ ให้สำรองการตั้งค่า MCP client ปัจจุบันก่อน จากนั้นอัปเดต checkout เดิมเป็น v2.0.0 หรือรับ v2.0.0 ลงในไดเรกทอรี source แยกต่างหากด้วยคำสั่งข้างต้น หากเลือกอย่างหลัง ให้ชี้ MCP client ไปยังไดเรกทอรีใหม่ บัญชี LINE และข้อมูลแชตไม่ต้องย้าย
+หากย้ายจาก `line-desktop-mcp` v1.2.0 หรือ v2.0.0 ที่มีอยู่ ให้สำรองการตั้งค่า MCP client ปัจจุบันก่อน รับ v3.0.0 ลงในไดเรกทอรี source ใหม่ที่วางคู่กันด้วยคำสั่งข้างต้น แล้วชี้ MCP registration เดิมไปยังไดเรกทอรีใหม่นั้น เก็บ checkout, launcher และการตั้งค่าเดิมไว้สำหรับ rollback บัญชี LINE และข้อมูลแชตไม่ต้องย้าย
 
-ใช้ Node.js 24 LTS ขึ้นไป (ทดสอบแล้ว: 24.19.0) และส่วนประกอบ runtime ที่ตั้งค่าแยกต่างหากตาม tools ที่ต้องใช้ การอ่านในเครื่องต้องใช้ Windows x64, Python x64, `cryptography` และ Pillow, SQLite3MC DLL ที่ตรึงไว้ และ `LINE_MCP_PYTHON` / `LINE_MCP_SQLITE3MC_DLL` ที่ระบุอย่างชัดเจน ต้องมี Python packages ทั้งสองสำหรับ local read ทุกแบบ รวมถึง metadata mode เครื่องมือ UI ใช้ `LINE_MCP_CUA_DRIVER` พร้อม AutoHotkey v2 และ Windows OCR ภายในเครื่องเมื่อจำเป็น ดูรายละเอียดใน[คู่มือการติดตั้ง](quickstart-windows.md)
+ใช้ Node.js 24 LTS ขึ้นไป (ทดสอบแล้ว: 24.19.0) และส่วนประกอบ runtime ที่ตั้งค่าแยกต่างหากตาม tools ที่ต้องใช้ การอ่านในเครื่องต้องใช้ Windows x64, Python x64, `cryptography` และ Pillow, SQLite3MC DLL ที่ตรึงไว้ และ `LINE_MCP_PYTHON` / `LINE_MCP_SQLITE3MC_DLL` ที่ระบุอย่างชัดเจน ต้องมี Python packages ทั้งสองสำหรับ local read ทุกแบบ รวมถึง metadata mode ใน v3.0.0 การทำงาน GUI กับแชตที่ระบุชื่อบน Windows รวมทั้ง 5 tools เดิม ต้องใช้สิ่งเหล่านี้และ `LINE_MCP_CUA_DRIVER` ด้วย ผู้ใช้หรือ UI แบบมีผู้ใช้กำกับต้องเปิดแชตที่ได้รับอนุญาตก่อน `open_line_chat` จะไม่ค้นหาให้อัตโนมัติ ชื่อที่แสดงแบบดิบต้องตรงทุกตัวอักษร และกรณี NFC เทียบเท่า การยุบ/ตัดช่องว่าง หรือรูปแบบชนกันจากจำนวนสมาชิกจะ fail closed เครื่องมือ UI ใช้ AutoHotkey v2 และ Windows OCR ภายในเครื่องเมื่อจำเป็น ดูรายละเอียดใน[คู่มือการติดตั้ง](quickstart-windows.md)
 
-เชื่อมต่อใหม่และรีเฟรช tool schema ตัวระบุ MCP และ 5 tools เดิมยังคงอยู่ แต่ `stage_line_reply` ต้องใช้ `source` แบบเต็มและ `sourceToken` แบบอายุสั้น ใช้ได้ครั้งเดียว จาก tools สำหรับสังเกต/ยืนยันต้นทาง จึงต้องแก้ไข caller เพราะการเรียกแบบข้อความอย่างเดียวเดิมจะถูกปฏิเสธ `get_line_status.localReader` รายงาน metadata ของ build/process แยกต่างหาก ไม่ใช่สถานะความพร้อมครบถ้วนของ dependency/DLL [รายละเอียดการอัปเกรดและย้อนกลับ](MIGRATING.md)
+เชื่อมต่อใหม่และรีเฟรช tool schema ตัวระบุ MCP และ 5 tools เดิมยังคงอยู่ แต่ `stage_line_reply` ต้องใช้ `source` แบบเต็มและ `sourceToken` แบบอายุสั้น ใช้ได้ครั้งเดียว จาก tools สำหรับสังเกต/ยืนยันต้นทาง token จะผูกกับ `chatRef` ใหม่ ชนิดกลุ่ม/direct และพิกเซลที่สังเกต หาก guard ก่อนหรือหลัง GUI พบ drift จะคืนผลปฏิเสธหรือไม่แน่ชัดแม้ได้ลองดำเนินการแล้ว `get_line_status.localReader` รายงาน metadata ของ build/process แยกต่างหาก ไม่ใช่สถานะความพร้อมครบถ้วนของ dependency/DLL [รายละเอียดการอัปเกรดและย้อนกลับ](MIGRATING.md#upgrading-to-v300)
 
-LINE Agent MCP เป็นชื่อที่ใช้แสดงของรุ่นชุมชน Windows นี้ v2.0.0 คือการอัปเกรด major ของ repository และลำดับการเผยแพร่ `line-desktop-mcp` เดิม ไม่ใช่โครงการ GitHub ใหม่หรือชื่อ MCP อื่น
+LINE Agent MCP เป็นชื่อที่ใช้แสดงของรุ่นชุมชน Windows นี้ v3.0.0 คือการอัปเกรด major ของ repository และลำดับการเผยแพร่ `line-desktop-mcp` เดิม เพราะเปลี่ยน prerequisites ของ Windows GUI และปิด operational flow บน macOS ไม่ใช่โครงการ GitHub ใหม่หรือชื่อ MCP อื่น
 
 รุ่นนี้ทำงานผ่าน local stdio เท่านั้น ไม่มี HTTP/REST server หรือบริการ cloud แบบมีค่าใช้จ่าย และจะไม่โหลด `.env` ใน current working directory โดยอัตโนมัติ การตั้งค่ามาจาก environment variables ที่ MCP client ส่งมาอย่างชัดเจน
 
-ใช้ GitHub tag นี้หรือ release `.tgz` โครงการนี้ไม่ได้เผยแพร่บน npm registry และไม่มี MCPB bundle แพ็กเกจเก่า `line-desktop-mcp@latest` จะไม่ติดตั้งรุ่นนี้
+ใช้ `line-desktop-mcp-3.0.0.tgz` และ `SHA256SUMS.txt` จาก GitHub release v3.0.0 โครงการนี้ไม่ได้เผยแพร่บน npm registry และไม่มี MCPB bundle แพ็กเกจเก่า `line-desktop-mcp@latest` จะไม่ติดตั้งรุ่นนี้
 
 ## หลักฐานและขอบเขต
 
 ![การเปรียบเทียบ cold reader บนเครื่องเดียวกัน](assets/performance.svg)
 
-แกน cold reader วัดได้ **17.866 → 4.661 วินาที** การอ่านแบบ warm ผ่าน persistent MCP หลังตรวจสอบการเริ่มใหม่วัดได้ **0.732–0.803 วินาที** โดยยังไม่รวม client/model overhead เพิ่มเติม ตัวเลขนี้เป็นการสังเกตแบบมีขอบเขตบนเครื่องเดียวกัน ไม่ใช่การรับประกันประสิทธิภาพสำหรับทุกสภาพแวดล้อม
+ค่า cold core **17.866 → 4.661 วินาที** และ warm read **0.732–0.803 วินาที** ผ่าน persistent MCP หลังตรวจสอบ restart เป็นหลักฐานเดิมของ v2.0.0 สำหรับ text-history reader ที่มีขอบเขตบนเครื่องเดียวกัน ยังไม่รวม client/model overhead และไม่ใช่การรับประกันประสิทธิภาพสำหรับทุกสภาพแวดล้อม
 
-ค่า 17.866 → 4.661 วินาทีเป็นการวัด Python core ของ **ประวัติข้อความ** ตามขอบเขต ไม่รวมการถอดรหัส image preview หรือ overhead ของ model/GUI จึงไม่ใช่ latency แบบ end-to-end สำหรับการทำความเข้าใจภาพ build gate ถูกเพิ่มหลัง cold comparison และการตรวจแยกใช้เวลาประมาณ 24 ms; ค่า warm 0.732–0.803 วินาทีรวม build gate แล้ว
+ตัวเลขนี้วัด Python core ของ **ประวัติข้อความ** ตามขอบเขต ไม่รวมการถอดรหัส image preview หรือ overhead ของ model/GUI จึงไม่ใช่ latency แบบ end-to-end และไม่ใช่ benchmark ของ named-chat GUI guards ใน v3.0.0
 
-มีการตรวจสอบการเริ่ม LINE ใหม่และการอ่านจริง 2 ครั้งผ่าน และมีการถอดรหัสการส่งภาพจริงอย่างอิสระแล้ว ผลเหล่านี้เป็นการตรวจสอบบนเครื่องเดียวกันในขอบเขตจำกัด ไม่ใช่การรับประกันประสิทธิภาพทั่วไป
+v2.0.0 เคยผ่านการตรวจสอบ restart/read ของ LINE จริง 2 ครั้ง และถอดรหัสการส่งภาพจริงอย่างอิสระแล้ว นี่เป็นหลักฐานจำกัดของรุ่นก่อนหน้าเท่านั้น guards GUI ใหม่ของ v3.0.0 ตรวจด้วย synthetic tests, native SQL และการ parse AutoHotkey เท่านั้น ยังไม่มีการรัน end-to-end กับแชต LINE จริง การส่งจริง หรือ GUI จริง
 
-- หลักฐาน GUI จริงครอบคลุม Windows LINE **26.4.2.3957, Traditional Chinese UI**, CUA Driver 0.23.2 การแปลเอกสารไม่ได้รับรองภาษา UI อื่น
+- หลักฐาน GUI จริงของ Windows LINE **26.4.2.3957, Traditional Chinese UI**, CUA Driver 0.23.2 เป็นของการทดสอบอ่านข้อความใน v2.0.0 ไม่ได้ยืนยัน guards ของ v3.0.0 หรือภาษา UI อื่น
 - วันที่ของ query และการวางแผนโพลใช้ **Asia/Taipei, UTC+08:00**
 - การอ่านในเครื่องใช้การเข้าถึงแบบอ่านอย่างเดียวที่มีขอบเขตต่อหน่วยความจำ process ของ LINE ที่ลงชื่อเข้าใช้ การเข้าถึงที่ถูกปฏิเสธหรือ build ที่ไม่ผ่านการตรวจสอบจะหยุดการทำงาน
-- ข้อมูลใน local cache ไม่ใช่คลังข้อมูล server ทั้งหมด preview ที่รองรับคือ PNG/JPEG, เฟรมแรกของ GIF/WebP และ PCM WAV ขนาดเล็ก สื่อที่รู้จักชนิดอื่นจะคืน metadata ไม่ได้หมายความว่ามีการเล่นหรือถอดเสียงสำหรับทุกชนิด
+- ข้อมูลใน local cache ไม่ใช่คลังข้อมูล server ทั้งหมด preview ที่รองรับคือ PNG/JPEG, เฟรมแรกของ GIF/WebP และ PCM WAV ขนาดเล็ก APNG จะคืนเพียงเฟรมแรกและยังคง source ของ PNG/JPEG แบบ static ไว้ metadata JSON ที่ลึกเกินและไม่ถูกต้องจะถูกละเลย แต่แถวอื่นยังทำงานต่อ สื่อที่รู้จักชนิดอื่นจะคืน metadata ไม่ได้หมายความว่ามีการเล่นหรือถอดเสียงสำหรับทุกชนิด
 - การไม่พบรูปภาพใน local cache ไม่ได้หมายความว่าการประมวลผล AI ทำงานแบบออฟไลน์ MCP จะส่งได้เฉพาะ preview จากแคชที่มีอยู่ให้โมเดลที่รองรับภาพ
-- การมีข้อความไม่ได้พิสูจน์ว่าส่งถึงหรือถูกอ่านโดยผู้รับ mention token จริงต้องตรวจสอบด้วยภาพ และจะไม่ส่งซ้ำอัตโนมัติเมื่อผลการส่งไม่แน่นอน
+- การมีข้อความไม่ได้พิสูจน์ว่าส่งถึงหรือถูกอ่านโดยผู้รับ mention token จริงต้องตรวจสอบด้วยภาพ และจะไม่ส่งซ้ำอัตโนมัติเมื่อผลการส่งไม่แน่นอน การคัดลอกประวัติจะคืนรูปแบบ clipboard ก่อนหน้าที่ใช้ได้เมื่อ sequence ของ owner ยังเสถียรเท่านั้น หากมีผู้เขียนใหม่จะเก็บข้อมูลนั้นไว้และปฏิเสธการอ่าน Clipboard History, listeners และ race ระหว่างเปรียบเทียบ/คืนค่ายังมีอยู่
 - การถอดรหัสและ OCR ทำงานภายในเครื่อง เนื้อหาที่ส่งกลับอยู่ภายใต้นโยบายการจัดการข้อมูลของ AI client ที่เลือกใช้
 
-สำหรับการตรวจสอบแบบสังเคราะห์ ให้รัน `npm test` และ `npm run test:python` พร้อม Python ที่ตั้งค่าแล้ว [ข้อกำหนดและการตรวจสอบโดยละเอียด](windows-extensions.md)
+การตรวจสอบสังเคราะห์สุดท้ายของ v3.0.0: Node tests **ผ่าน 221 รายการ**; Python tests **ผ่าน 101 จาก 102 รายการ** และ skip 1 รายการเพราะ Windows filesystem symlink ไม่มีการรันแชตจริงหรือการส่งจริง ให้รัน `npm test` และ `npm run test:python` พร้อม Python ที่ตั้งค่าแล้ว [ข้อกำหนดและการตรวจสอบโดยละเอียด](windows-extensions.md)
 
 [การเลือกภาษาและแหล่งข้อมูลทางการ](LANGUAGES.md) · [รายงานปัญหา](https://github.com/bensonmaxai/line-desktop-mcp/issues) · [MIT license](../LICENSE.md) · [หมายเหตุเกี่ยวกับ third party](THIRD_PARTY.md)
 

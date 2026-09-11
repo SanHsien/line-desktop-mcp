@@ -12,7 +12,7 @@ if str(PYTHON) not in sys.path:
     sys.path.insert(0, str(PYTHON))
 
 import line_sqlite_engine as engine
-from line_scoped_core import ReaderError
+from line_scoped_core import ReaderError, read_scoped
 
 
 class SQLiteEngineConfigurationTests(unittest.TestCase):
@@ -116,6 +116,28 @@ class SQLiteEngineTests(unittest.TestCase):
                 'DATABASE_READ_FAILED',
                 lambda: connection.execute("INSERT INTO _groupChat VALUES ('c2','x','x')"),
             )
+
+    def test_gui_identity_passes_the_native_read_authorizer_and_refuses_cross_kind_aliases(self):
+        with engine.Connection(self.database, self.passphrase, readonly=False) as connection:
+            connection.execute('CREATE TABLE _contact(_mid TEXT, _displayName TEXT, _displayNameOverridden TEXT)')
+            connection.execute('CREATE TABLE _chat(_id TEXT, _midType INTEGER)')
+            connection.execute("INSERT INTO _contact VALUES ('u1','Another Contact','')")
+            connection.execute("INSERT INTO _chat VALUES ('u1',0)")
+        args = {'chatName': 'Synthetic Group', 'dateFrom': '2026-09-11', 'dateTo': '2026-09-11',
+                'identityOnly': True, 'guiIdentityOnly': True}
+        with engine.Connection(self.database, self.passphrase, readonly=True) as connection:
+            connection.execute('BEGIN')
+            connection.restrict_reads()
+            result = read_scoped(connection, args, {})
+            self.assertTrue(result['chatIdentity']['guiDisplayNameUnique'])
+            self.assertEqual(result['chatIdentity']['kind'], 'group')
+            self.assertEqual(result['messages'], [])
+        with engine.Connection(self.database, self.passphrase, readonly=False) as connection:
+            connection.execute("UPDATE _contact SET _displayName = 'SyntheticGroup (2)'")
+        with engine.Connection(self.database, self.passphrase, readonly=True) as connection:
+            connection.execute('BEGIN')
+            connection.restrict_reads()
+            self.assert_reader_code('CHAT_AMBIGUOUS', lambda: read_scoped(connection, args, {}))
 
     def test_multiple_statements_are_consistently_refused(self):
         with engine.Connection(self.database, self.passphrase, readonly=True) as connection:

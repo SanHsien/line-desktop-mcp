@@ -6,6 +6,7 @@ import test from 'node:test';
 
 import { LineAutomation } from '../src/automation/line-automation.js';
 import { withLineOperation } from '../src/automation/line-operation-lock.mjs';
+import { createLineExtensions } from '../src/extensions/line-extensions.mjs';
 
 function fakeWindowsFacade() {
   const instance = Object.create(LineAutomation.prototype);
@@ -43,51 +44,72 @@ function fakeWindowsFacade() {
   return { instance, calls };
 }
 
-test('Windows facade stops history, send, and file workflows before chat selection when activation is unverified', async () => {
+test('Windows facade delegates chat-scoped work to one verified UI without altering literal text', async () => {
   const { instance, calls } = fakeWindowsFacade();
-  instance.automation.activateLine = async () => {
-    calls.push('activate');
-    return { success: false };
+  const message = '@All stays literal\nsecond line';
+  const verifiedUi = {
+    async readLegacyHistory(args) {
+      calls.push(['ui-history', args]);
+      return 'fixture chat history';
+    },
+    async sendText(args) {
+      calls.push(['ui-send', args]);
+      return { success: true, verification: { chat: 'exact-header' } };
+    },
+    async stageFile(args) {
+      calls.push(['ui-file', args]);
+      return { success: true, staged: true };
+    },
+  };
+  instance._verifiedUi = verifiedUi;
+
+  assert.equal(instance.getVerifiedUi(), verifiedUi);
+  assert.equal(instance.getVerifiedUi(), verifiedUi);
+  assert.equal(await instance.getChatHistory('sample group', '2026-09-12', 25, 5), 'fixture chat history');
+  assert.deepEqual(await instance.sendChatMessage('sample group', message, true), { success: true, error: null });
+  assert.deepEqual(await instance.stageFileManual(
+    'sample group',
+    'C:\\temporary\\file.txt',
+    'attachment note',
+  ), { success: true, error: null });
+
+  assert.deepEqual(calls, [
+    ['ui-history', { chatName: 'sample group', pageUpTimes: 5 }],
+    ['ui-send', { chatName: 'sample group', message, autoSend: true }],
+    ['ui-file', { chatName: 'sample group', filePath: 'C:\\temporary\\file.txt', optionalMessage: 'attachment note' }],
+  ]);
+});
+
+test('Windows facade never falls through to legacy chat helpers when verified UI refuses', async () => {
+  const { instance, calls } = fakeWindowsFacade();
+  const refusal = Object.assign(new Error('CUA or exact header unavailable'), {
+    code: 'LINE_UI_BACKEND_UNAVAILABLE',
+    operationMayHaveCompleted: false,
+  });
+  instance._verifiedUi = {
+    readLegacyHistory: async () => { throw refusal; },
+    sendText: async () => { throw refusal; },
+    stageFile: async () => { throw refusal; },
   };
 
   for (const action of [
     () => instance.getChatHistory('sample group'),
     () => instance.sendChatMessage('sample group', 'not sent', true),
     () => instance.stageFileManual('sample group', 'C:\\temporary\\file.txt'),
-  ]) {
-    await assert.rejects(action(), { code: 'LINE_FOCUS_UNAVAILABLE' });
-  }
+  ]) await assert.rejects(action(), error => error === refusal);
 
-  assert.equal(calls.some(call => Array.isArray(call) && call[0] === 'select'), false);
-  assert.deepEqual(calls, ['switch', 'activate', 'switch', 'activate', 'switch', 'activate']);
+  assert.deepEqual(calls, []);
 });
 
-test('Windows facade treats empty or error clipboard output as a failed history read', async () => {
+test('Windows facade treats empty or error verified history output as a failed history read', async () => {
   for (const value of [null, '', ' ', 'ERROR: Clipboard is empty']) {
     const { instance } = fakeWindowsFacade();
-    instance.automation.copyAllChatToClipboard = async () => value;
+    instance._verifiedUi = { readLegacyHistory: async () => value };
     await assert.rejects(
       instance.getChatHistory('sample group'),
       error => error?.code === 'HISTORY_READ_FAILED' && /Do not treat this as empty history/i.test(error.message),
     );
   }
-});
-
-test('optional attachment text failure stops before the native file picker is staged', async () => {
-  const { instance, calls } = fakeWindowsFacade();
-  instance.automation.sendMessage = async (chatName, message, autoSend) => {
-    calls.push(['send', chatName, message, autoSend]);
-    return { success: false, error: 'LINE_SEND_TEXT_FAILED' };
-  };
-
-  const result = await instance.stageFileManual(
-    'sample group',
-    'C:\\temporary\\file.txt',
-    'attachment note',
-  );
-
-  assert.deepEqual(result, { success: false, error: 'LINE_SEND_TEXT_FAILED' });
-  assert.equal(calls.some(call => Array.isArray(call) && call[0] === 'stage-file'), false);
 });
 
 test('Windows facade shares one operation lock across send, history, and file flows without replaying work', async t => {
@@ -104,13 +126,17 @@ test('Windows facade shares one operation lock across send, history, and file fl
   const started = new Promise(resolve => {
     startedResolve = resolve;
   });
-  instance._sendChatMessage = async () => {
-    starts += 1;
-    startedResolve();
-    await new Promise(resolve => {
-      release = resolve;
-    });
-    return { success: true, error: null };
+  instance._verifiedUi = {
+    sendText: () => instance.runOperation('ui-send-text', async () => {
+      starts += 1;
+      startedResolve();
+      await new Promise(resolve => {
+        release = resolve;
+      });
+      return { success: true };
+    }),
+    readLegacyHistory: () => instance.runOperation('ui-read-legacy-history', async () => 'history'),
+    stageFile: () => instance.runOperation('ui-stage-file', async () => ({ success: true })),
   };
 
   const running = instance.sendChatMessage('sample group', 'draft only');
@@ -121,6 +147,53 @@ test('Windows facade shares one operation lock across send, history, and file fl
 
   assert.deepEqual(await running, { success: true, error: null });
   assert.equal(starts, 1);
+});
+
+test('macOS chat-scoped facade methods fail closed before any backend method', async () => {
+  const { instance, calls } = fakeWindowsFacade();
+  instance.platform = 'darwin';
+  instance._verifiedUi = {
+    readLegacyHistory: async () => calls.push('ui-history'),
+    sendText: async () => calls.push('ui-send'),
+    stageFile: async () => calls.push('ui-file'),
+  };
+
+  for (const action of [
+    () => instance.getChatHistory('sample group'),
+    () => instance.sendChatMessage('sample group', 'not sent', true),
+    () => instance.stageFileManual('sample group', '/tmp/file.txt'),
+  ]) {
+    await assert.rejects(action(), error => error?.code === 'LINE_CHAT_VERIFICATION_UNAVAILABLE'
+      && error?.operationMayHaveCompleted === false);
+  }
+  assert.deepEqual(calls, []);
+});
+
+test('extension construction reuses the facade verified UI without starting it', async () => {
+  const { instance } = fakeWindowsFacade();
+  const calls = [];
+  const verifiedUi = {
+    sendText: async args => {
+      calls.push(args);
+      return { success: true };
+    },
+  };
+  instance.getVerifiedUi = () => {
+    calls.push('get-ui');
+    return verifiedUi;
+  };
+
+  const extension = createLineExtensions(instance, { now: () => new Date('2026-09-12T00:00:00Z') });
+  assert.deepEqual(calls, ['get-ui']);
+  const result = await extension.call('send_message_manual', {
+    chatName: 'sample group',
+    message: 'literal draft',
+  });
+  assert.equal(result.isError, undefined);
+  assert.deepEqual(calls, [
+    'get-ui',
+    { chatName: 'sample group', message: 'literal draft', autoSend: false },
+  ]);
 });
 
 test('lock ownership loss after a completed workflow reports uncertainty and preserves the foreign lock', async t => {

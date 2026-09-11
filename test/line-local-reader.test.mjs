@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { readLocalLineMessages, readLocalLineChatIdentity, runReaderProcess } from '../src/extensions/line-local-reader.mjs';
+import { readLocalLineMessages, readLocalLineChatIdentity, readLocalLineGuiChatIdentity,
+  runReaderProcess, validateLocalScope } from '../src/extensions/line-local-reader.mjs';
 const args = { chatName: '測試群組', dateFrom: '2026-09-05', dateTo: '2026-09-11' };
 const response = () => ({ ok: true, chatName: args.chatName, chatIdentity: { kind: 'group', displayName: args.chatName, uiIdentityVerified: false }, count: 1, messages: [{ sourceRef: 'message:test', date: '2026-09-05', sourceTimestamp: Date.parse('2026-09-05T00:00:00+08:00'), text: '多行\n😀' }], scope: { kind: 'local_database', truncated: false, requested: { ...args, messageLimit: 200, mediaMode: 'metadata' } }, pagination: { hasMore: false, nextCursor: null } });
 const run = result => async () => ({ code: 0, stdout: JSON.stringify(result) });
@@ -28,6 +29,75 @@ test('private chat identity lookup excludes history and is not a public message 
   assert.equal(result.scope.requested.identityOnly, true);
   assert.deepEqual(result.messages, []);
   await assert.rejects(readLocalLineChatIdentity(args, { runProcess: run(response()) }), { code: 'LOCAL_READER_SCOPE_MISMATCH' });
+});
+
+test('GUI chat identity wrapper creates a private one-day Taipei scope and requires uniqueness proof', async () => {
+  const now = () => new Date('2026-09-11T16:30:00.000Z');
+  const chatRef = 'chat:' + 'b'.repeat(24);
+  const runProcess = async scope => {
+    assert.deepEqual(scope, {
+      chatName: args.chatName,
+      dateFrom: '2026-09-12',
+      dateTo: '2026-09-12',
+      identityOnly: true,
+      guiIdentityOnly: true,
+      messageLimit: 200,
+      mediaMode: 'metadata',
+    });
+    return { code: 0, stdout: JSON.stringify({
+      ok: true, chatName: scope.chatName, chatRef,
+      chatIdentity: { kind: 'group', displayName: scope.chatName,
+        uiIdentityVerified: false, guiDisplayNameUnique: true },
+      count: 0, messages: [], pagination: { hasMore: false, nextCursor: null },
+      scope: { kind: 'local_gui_chat_identity', truncated: false, requested: scope },
+    }) };
+  };
+  const result = await readLocalLineGuiChatIdentity({ chatName: args.chatName }, { now, runProcess });
+  assert.equal(result.chatRef, chatRef);
+  assert.equal(result.chatIdentity.guiDisplayNameUnique, true);
+  assert.equal(result.scope.kind, 'local_gui_chat_identity');
+
+  for (const mutate of [
+    result => { delete result.chatIdentity.guiDisplayNameUnique; },
+    result => { result.chatIdentity.guiDisplayNameUnique = false; },
+    result => { result.scope.kind = 'local_chat_identity'; },
+    result => { result.scope.requested.guiIdentityOnly = undefined; },
+    result => { result.scope.requested.unrelatedName = 'must not escape'; },
+    result => { result.chatIdentity.unrelatedId = 'must not escape'; },
+    result => { result.count = 1; },
+    result => { result.messages = [{ sourceRef: 'message:private' }]; },
+  ]) {
+    await assert.rejects(readLocalLineGuiChatIdentity({ chatName: args.chatName }, { now,
+      runProcess: async requested => {
+        const output = await runProcess(requested);
+        const value = JSON.parse(output.stdout);
+        mutate(value);
+        return { code: 0, stdout: JSON.stringify(value) };
+      } }), { code: 'LOCAL_READER_SCOPE_MISMATCH' });
+  }
+});
+
+test('GUI-only flag is rejected by public readers and malformed wrapper input never launches', async () => {
+  const internal = { ...args, identityOnly: true, guiIdentityOnly: true };
+  assert.throws(() => validateLocalScope(internal), { code: 'LINE_INVALID_ARGUMENT' });
+  let calls = 0;
+  await assert.rejects(readLocalLineMessages(internal, { runProcess: async () => { calls++; } }),
+    { code: 'LINE_INVALID_ARGUMENT' });
+  for (const input of [args, { chatName: args.chatName, chatType: 'group' }, { chatName: ' x' }, null]) {
+    await assert.rejects(readLocalLineGuiChatIdentity(input, { runProcess: async () => { calls++; } }),
+      { code: 'LINE_INVALID_ARGUMENT' });
+  }
+  assert.equal(calls, 0);
+});
+
+test('GUI identity unavailable is a safe propagated child code', async () => {
+  await assert.rejects(readLocalLineGuiChatIdentity({ chatName: args.chatName }, {
+    now: () => new Date('2026-09-12T00:00:00Z'),
+    runProcess: async () => ({ code: 2, stdout: JSON.stringify({
+      ok: false, code: 'GUI_IDENTITY_UNAVAILABLE', message: 'private inventory detail',
+    }) }),
+  }), error => error.code === 'GUI_IDENTITY_UNAVAILABLE'
+    && !error.message.includes('inventory detail'));
 });
 
 test('bad scope is rejected before starting a subprocess', async () => {

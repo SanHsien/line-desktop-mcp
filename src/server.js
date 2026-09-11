@@ -15,14 +15,25 @@ import { fileURLToPath } from 'url';
 
 import { LineAutomation } from './automation/line-automation.js';
 import { createLineExtensions } from './extensions/line-extensions.mjs';
+import { LineToolError } from './extensions/line-runtime.mjs';
 
 // 取得當前模組的檔案路徑
 const __filename = fileURLToPath(import.meta.url);
 const packageVersion = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 
+const WINDOWS_LEGACY_CHAT_REQUIREMENTS = 'The target chat must already be open. Requires LINE_MCP_CUA_DRIVER, LINE_MCP_PYTHON and LINE_MCP_SQLITE3MC_DLL so the bridge can resolve one unique local chat identity and verify the fresh active header before UI or clipboard activity.';
+const MACOS_LEGACY_CHAT_UNAVAILABLE = 'Unavailable on macOS: this release returns LINE_CHAT_VERIFICATION_UNAVAILABLE before UI or clipboard activity because it has no verified exact active-chat identity backend.';
+
+function legacyChatToolDescription(runtimePlatform, windowsDescription) {
+  if (runtimePlatform === 'win32') return `${windowsDescription} ${WINDOWS_LEGACY_CHAT_REQUIREMENTS}`;
+  if (runtimePlatform === 'darwin') return MACOS_LEGACY_CHAT_UNAVAILABLE;
+  return 'Unavailable on this platform because the release has no verified exact active-chat identity backend.';
+}
+
 export class LineDesktopMCPServer {
   constructor({ automation, ui, extensionsEnabled = process.env.LINE_MCP_EXTENSIONS === '1', runtimePlatform = platform() } = {}) {
     const useExtensions = runtimePlatform === 'win32' && extensionsEnabled;
+    this.runtimePlatform = runtimePlatform;
     this.server = new Server(
       {
         name: 'line-desktop-mcp',
@@ -66,7 +77,7 @@ export class LineDesktopMCPServer {
         tools: [
           {
             name: 'get_line_chatroom_history_default',
-            description: 'Extract conversation history from a specific LINE group chat or individual chat, when the amount of data to be read is uncertain, always use this function.',
+            description: legacyChatToolDescription(this.runtimePlatform, 'Read bounded loaded history from the exact named LINE group or direct chat on Windows. Use this default paging size when the needed amount is uncertain.'),
             inputSchema: {
               type: 'object',
               properties: {
@@ -89,7 +100,7 @@ export class LineDesktopMCPServer {
           },
           {
             name: 'get_line_chatroom_history_long',
-            description: 'Extract conversation history from a specific LINE group chat or individual chat, when a more complete set of content is needed, such as for summarizing or analyzing data over a period of time.',
+            description: legacyChatToolDescription(this.runtimePlatform, 'Read a larger bounded window of loaded history from the exact named LINE group or direct chat on Windows.'),
             inputSchema: {
               type: 'object',
               properties: {
@@ -112,7 +123,7 @@ export class LineDesktopMCPServer {
           },
           {
             name: 'get_line_chatroom_history_short',
-            description: 'Extract conversation history from a specific LINE group chat or individual chat, when a quick response is needed, only retrieve the most recent few messages.',
+            description: legacyChatToolDescription(this.runtimePlatform, 'Read a smaller bounded window of recent loaded history from the exact named LINE group or direct chat on Windows.'),
             inputSchema: {
               type: 'object',
               properties: {
@@ -135,7 +146,7 @@ export class LineDesktopMCPServer {
           },
           {
             name: 'send_message_manual',
-            description: 'Send a message to a specific LINE chat or group, with pre-send review in LINE. If the user’s intent to auto-send is unclear, use this function by default',
+            description: legacyChatToolDescription(this.runtimePlatform, 'Stage a message draft without sending in the exact named LINE group or direct chat on Windows. Use only when the user asked to review the draft inside LINE.'),
             inputSchema: {
               type: 'object',
               properties: {
@@ -153,7 +164,7 @@ export class LineDesktopMCPServer {
           },
           {
             name: 'send_message_auto',
-            description: 'Send a message to a specific LINE chat or group. Sends immediately with no pre-send review in LINE. Use this only if the user explicitly requests immediate sending; otherwise, do not call this function',
+            description: legacyChatToolDescription(this.runtimePlatform, 'Send one approved message immediately in the exact named LINE group or direct chat on Windows. Use only after explicit approval of the exact recipient and message; never retry an uncertain result.'),
             inputSchema: {
               type: 'object',
               properties: {
@@ -202,7 +213,7 @@ export class LineDesktopMCPServer {
             );
         }
       } catch (error) {
-        if (typeof error.code === 'string' && /^(HISTORY_|LINE_)/.test(error.code)) {
+        if (error instanceof LineToolError || (typeof error.code === 'string' && /^(HISTORY_|LINE_)/.test(error.code))) {
           return {
             isError: true,
             content: [{ type: 'text', text: JSON.stringify({

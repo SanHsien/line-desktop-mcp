@@ -50,6 +50,22 @@ class MediaTests(unittest.TestCase):
             return stream.getvalue()
 
     @staticmethod
+    def jpeg(width,height):
+        with io.BytesIO() as stream:
+            Image.new('RGB',(width,height),(10,20,30)).save(stream,format='JPEG')
+            return stream.getvalue()
+
+    @staticmethod
+    def apng(width,height,default_image=False):
+        first = Image.new('RGBA',(width,height),(10,20,30,255))
+        frames = [Image.new('RGBA',(width,height),(40,50,60,255)),
+                  Image.new('RGBA',(width,height),(70,80,90,255))]
+        with io.BytesIO() as stream:
+            first.save(stream,format='PNG',save_all=True,append_images=frames,
+                       duration=100,loop=0,default_image=default_image)
+            return stream.getvalue()
+
+    @staticmethod
     def gif(width,height):
         with io.BytesIO() as stream:
             Image.new('RGBA',(width,height),(10,20,30,120)).save(stream,format='GIF')
@@ -261,6 +277,40 @@ class MediaTests(unittest.TestCase):
         self.assertEqual(result['previewRole'],'derived_safe_preview')
         self.assertEqual(result['previewInfo']['decodedSha256'],hashlib.sha256(preview).hexdigest())
         self.assertNotEqual(result['previewInfo']['decodedSha256'],result['decodedSha256'])
+
+    def test_animated_png_previews_are_derived_static_first_frames(self):
+        for default_image in (False,True):
+            source = self.apng(4,2,default_image)
+            with self.subTest(default_image=default_image):
+                with Image.open(io.BytesIO(source)) as image:
+                    self.assertTrue(image.is_animated)
+                    self.assertGreater(image.n_frames,1)
+                details = image_details(source)
+                preview = base64.b64decode(details['preview']['data'])
+                self.assertEqual((details['format'],details['mimeType']),('PNG','image/png'))
+                self.assertEqual(details['decodedSha256'],hashlib.sha256(source).hexdigest())
+                self.assertEqual(details['decodedBytes'],len(source))
+                self.assertEqual(details['_previewRole'],'derived_safe_preview')
+                self.assertNotEqual(preview,source)
+                with Image.open(io.BytesIO(preview)) as image:
+                    self.assertIn(image.format,('PNG','JPEG'))
+                    self.assertFalse(getattr(image,'is_animated',False))
+                    self.assertEqual(getattr(image,'n_frames',1),1)
+                    self.assertEqual((image.width,image.height),(4,2))
+                info = preview_info(details)
+                self.assertEqual(info['decodedSha256'],hashlib.sha256(preview).hexdigest())
+                self.assertEqual(info['decodedBytes'],len(preview))
+                self.assertNotEqual(info['decodedSha256'],details['decodedSha256'])
+
+    def test_static_png_jpeg_previews_preserve_source_bytes(self):
+        for source,expected,mime_type in ((self.png(4,2),'PNG','image/png'),
+                                          (self.jpeg(4,2),'JPEG','image/jpeg')):
+            with self.subTest(expected=expected):
+                details = image_details(source)
+                self.assertEqual((details['format'],details['mimeType']),(expected,mime_type))
+                self.assertEqual(details['_previewRole'],'source_bytes')
+                self.assertEqual(base64.b64decode(details['preview']['data']),source)
+                self.assertEqual(preview_info(details)['decodedSha256'],details['decodedSha256'])
 
     def test_kind_one_rejects_authenticated_non_image_and_bad_image_bytes(self):
         root = TMP_ROOT / 'synthetic-kind-one-cache'

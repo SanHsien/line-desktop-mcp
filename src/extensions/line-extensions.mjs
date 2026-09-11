@@ -12,7 +12,7 @@ import { reconcileLineSources } from './line-source-reconciliation.mjs';
 import { requireReplySource } from './line-quote-binding.mjs';
 import { LineToolError, requireChat, requireText, runtimeRequire, toolResult, toolError } from './line-runtime.mjs';
 
-export const EXTENSION_VERSION = '2.0.0';
+export const EXTENSION_VERSION = '3.0.0';
 const MAX_MEDIA_PREVIEW_BYTES = 256 * 1024;
 // Match the reader's validated original-image contract. The 2048-pixel
 // normalization applies only to derived previews, not small original PNG/JPEG.
@@ -75,7 +75,7 @@ export const LINE_TOOL_DESCRIPTORS = [
     inputSchema: { type: 'object', properties: LINE_WORKFLOW_PLAN_PROPERTIES, required: ['workflow', 'chatName'], additionalProperties: false, ...LINE_WORKFLOW_PLAN_SCHEMA },
   },
   descriptor('get_line_status', 'Check the existing LINE/GUI runtime, verified client build and process-instance metadata without reading chats or scanning memory. Unknown builds refuse local chat reading until verified. Presence cannot establish login, connectivity or delivery.', {}),
-  descriptor('open_line_chat', 'Open the exact named chat and verify the active chat identity. Ambiguous/custom-drawn headers can require visual assistance. May bring LINE forward and mark the chat read.', { chatName: chat }, ['chatName'], uiOnly),
+  descriptor('open_line_chat', 'Verify the already open named chat against a unique local identity and fresh UI header. Open it first with guided LINE UI navigation; automatic first-result selection is disabled. Custom-drawn headers can require visual assistance.', { chatName: chat }, ['chatName'], uiOnly),
   descriptor('get_line_chat_messages', 'Read structured recent messages with real date/count filtering. Scope is only the loaded LINE history window. Unknown sender/date remains unknown; parse omissions are explicit.', bounds, ['chatName'], uiOnly),
   descriptor('search_line_chat_messages', 'Literal search across loaded recent LINE messages, optionally by sender/date/kind. Does not search the full server archive. A zero-match result is limited to this retrieved window.', { ...filter, query: text }, ['chatName', 'query'], uiOnly),
   descriptor('export_line_chat_history', 'Export a bounded, user-authorized chat scope to a new local TXT/JSON/CSV file. Absolute path and matching extension required. Refuses overwrites and reparse paths; returns SHA-256/readback evidence. Not a restorable LINE backup.', { ...filter, outputPath: { type: 'string', minLength: 1, maxLength: 4096 }, format: { type: 'string', enum: ['txt', 'json', 'csv'] } }, ['chatName', 'outputPath', 'format'], uiOnly),
@@ -213,7 +213,10 @@ function mcpPreviewBlock(media) {
   return { content: { type: 'image', data: preview.data, mimeType: preview.mimeType }, contentIndex: 'imageContentIndex' };
 }
 
-export function createLineExtensions(automation, { ui = new LineUi({ automation }), now = () => new Date(), fileSystem = fs, localReader = readLocalLineMessages, localIdentityReader = readLocalLineChatIdentity, pollReader = readOpenLinePollState, clientStatus = readLineClientStatus } = {}) {
+export function createLineExtensions(automation, { ui, now = () => new Date(), fileSystem = fs, localReader = readLocalLineMessages, localIdentityReader = readLocalLineChatIdentity, pollReader = readOpenLinePollState, clientStatus = readLineClientStatus } = {}) {
+  ui ??= typeof automation?.getVerifiedUi === 'function'
+    ? automation.getVerifiedUi()
+    : new LineUi({ automation });
   const Ajv = runtimeRequire()('ajv');
   const ajv = new Ajv({ allErrors: true, strict: false });
   const validators = new Map(LINE_TOOL_DESCRIPTORS.map(item => [item.name, ajv.compile(item.inputSchema)]));
@@ -273,7 +276,7 @@ export function createLineExtensions(automation, { ui = new LineUi({ automation 
       if (visualTwins.length !== 1 || visualTwins[0].sourceRef !== source.sourceRef) {
         throw new LineToolError('LINE_REPLY_SOURCE_VISUALLY_AMBIGUOUS', 'More than one local source has the same full text, sender, date and visible minute. LINE cannot visually distinguish their source references. No UI source was selected.');
       }
-      const view = await ui.getReplySourceTarget({ chatName: args.chatName, chatType: records.chatIdentity.kind, source });
+      const view = await ui.getReplySourceTarget({ chatName: args.chatName, chatType: records.chatIdentity.kind, chatRef: records.chatRef, source });
       return { ...view, localSourceVerification: { verified: true, sourceRef: source.sourceRef,
         chatKind: records.chatIdentity?.kind, timePrecision: source.time.length === 5 ? 'minute' : 'second',
         localTimePrecision: source.time.length === 5 ? 'minute' : 'second', visualTimePrecision: 'minute',

@@ -7,9 +7,10 @@ const SCRIPT = fileURLToPath(new URL('./python/line-reader.py', import.meta.url)
 const MAX_OUTPUT = 4 * 1024 * 1024;
 const fail = code => new LineToolError(code, 'Local LINE read did not complete. No GUI fallback or send was attempted.');
 
-export function validateLocalScope(args, { allowIdentityOnly = false } = {}) {
+export function validateLocalScope(args, { allowIdentityOnly = false, allowGuiIdentityOnly = false } = {}) {
+  const allowGuiMode = allowIdentityOnly && allowGuiIdentityOnly;
   if (!args || typeof args !== 'object' || Array.isArray(args)
-      || Object.keys(args).some(key => !['chatName', 'chatType', 'dateFrom', 'dateTo', 'messageLimit', 'query', 'cursor', 'mediaMode', 'mediaSourceRefs', ...(allowIdentityOnly ? ['identityOnly'] : [])].includes(key))) throw fail('LINE_INVALID_ARGUMENT');
+      || Object.keys(args).some(key => !['chatName', 'chatType', 'dateFrom', 'dateTo', 'messageLimit', 'query', 'cursor', 'mediaMode', 'mediaSourceRefs', ...(allowIdentityOnly ? ['identityOnly'] : []), ...(allowGuiMode ? ['guiIdentityOnly'] : [])].includes(key))) throw fail('LINE_INVALID_ARGUMENT');
   requireChat(args.chatName);
   if (args.chatType !== undefined && !['auto', 'group', 'direct'].includes(args.chatType)) throw fail('LINE_INVALID_ARGUMENT');
   if (/[\x00-\x1f]/u.test(args.chatName)) throw fail('LINE_INVALID_ARGUMENT');
@@ -24,6 +25,9 @@ export function validateLocalScope(args, { allowIdentityOnly = false } = {}) {
       || (args.query !== undefined && (typeof args.query !== 'string' || !args.query.length || args.query.length > 1000 || args.query.includes('\0')))) throw fail('LINE_INVALID_ARGUMENT');
   const mediaMode = args.mediaMode ?? 'metadata';
   if (args.identityOnly !== undefined && (args.identityOnly !== true || mediaMode !== 'metadata'
+      || ['query', 'cursor', 'mediaSourceRefs'].some(key => key in args))) throw fail('LINE_INVALID_ARGUMENT');
+  if (args.guiIdentityOnly !== undefined && (!allowGuiMode || args.guiIdentityOnly !== true
+      || args.identityOnly !== true || mediaMode !== 'metadata'
       || ['query', 'cursor', 'mediaSourceRefs'].some(key => key in args))) throw fail('LINE_INVALID_ARGUMENT');
   if ((args.mediaMode !== undefined && !['metadata', 'preview'].includes(args.mediaMode))
       || (args.mediaSourceRefs !== undefined && (mediaMode !== 'preview' || !Array.isArray(args.mediaSourceRefs)
@@ -88,15 +92,32 @@ export async function readLocalLineChatIdentity(args, options = {}) {
   return readLocalLineMessages({ ...args, identityOnly: true }, { ...options, allowIdentityOnly: true });
 }
 
-export async function readLocalLineMessages(args, { runProcess = runReaderProcess, allowIdentityOnly = false } = {}) {
-  const scope = validateLocalScope(args, { allowIdentityOnly });
+export async function readLocalLineGuiChatIdentity(args, options = {}) {
+  if (!args || typeof args !== 'object' || Array.isArray(args)
+      || Object.keys(args).length !== 1 || !Object.hasOwn(args, 'chatName')) throw fail('LINE_INVALID_ARGUMENT');
+  requireChat(args.chatName);
+  if (/[\x00-\x1f]/u.test(args.chatName)) throw fail('LINE_INVALID_ARGUMENT');
+  const { now = () => new Date(), ...readerOptions } = options;
+  let instant;
+  try { instant = now(); } catch { throw fail('LINE_INVALID_ARGUMENT'); }
+  if (!(instant instanceof Date) || !Number.isFinite(instant.valueOf())) throw fail('LINE_INVALID_ARGUMENT');
+  const date = new Date(instant.valueOf() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  return readLocalLineMessages({ chatName: args.chatName, dateFrom: date, dateTo: date,
+    identityOnly: true, guiIdentityOnly: true }, {
+    ...readerOptions, allowIdentityOnly: true, allowGuiIdentityOnly: true,
+  });
+}
+
+export async function readLocalLineMessages(args, { runProcess = runReaderProcess, allowIdentityOnly = false,
+  allowGuiIdentityOnly = false } = {}) {
+  const scope = validateLocalScope(args, { allowIdentityOnly, allowGuiIdentityOnly });
   let output;
   try { output = await runProcess(scope); }
   catch (error) { throw error instanceof LineToolError ? error : fail('LOCAL_READER_UNAVAILABLE'); }
   if (typeof output?.stdout !== 'string' || Buffer.byteLength(output.stdout) > MAX_OUTPUT) throw fail('LOCAL_READER_INVALID_RESULT');
   let result;
   try { result = JSON.parse(output.stdout); } catch { throw fail('LOCAL_READER_INVALID_RESULT'); }
-  const allowedErrors = new Set(['CHAT_NOT_FOUND', 'CHAT_AMBIGUOUS', 'SOURCE_BUSY', 'SESSION_KEY_UNAVAILABLE',
+  const allowedErrors = new Set(['CHAT_NOT_FOUND', 'CHAT_AMBIGUOUS', 'GUI_IDENTITY_UNAVAILABLE', 'SOURCE_BUSY', 'SESSION_KEY_UNAVAILABLE',
     'LINE_BUILD_UNVERIFIED',
     'SESSION_KEY_CHANGED', 'DATABASE_READ_FAILED', 'RESULT_TOO_LARGE', 'INVALID_CURSOR', 'CURSOR_SCOPE_MISMATCH',
     'MAIN_DATABASE_AMBIGUOUS', 'LINE_PROCESS_UNAVAILABLE', 'LINE_PROCESS_AMBIGUOUS', 'ENGINE_INTEGRITY_FAILED',
@@ -106,11 +127,21 @@ export async function readLocalLineMessages(args, { runProcess = runReaderProces
     'SOURCE_ACCESS_DENIED', 'SOURCE_NOT_FOUND', 'SOURCE_REPARSE', 'SOURCE_NOT_FILE', 'SOURCE_TOO_LARGE',
     'DATABASE_HEADER_INVALID', 'DATABASE_SIZE_INVALID', 'WAL_HEADER_INVALID', 'WAL_PAGE_SIZE_MISMATCH', 'WAL_NO_VALID_COMMIT']);
   if (!result || typeof result !== 'object' || output.code !== 0 || result.ok !== true) throw fail(allowedErrors.has(result?.code) ? result.code : 'LOCAL_READER_FAILED');
-  if (result.chatName !== scope.chatName || result.scope?.kind !== (scope.identityOnly ? 'local_chat_identity' : 'local_database')
+  const expectedKind = scope.guiIdentityOnly ? 'local_gui_chat_identity'
+    : scope.identityOnly ? 'local_chat_identity' : 'local_database';
+  const guiShapeMatches = !scope.guiIdentityOnly || (
+    result.chatIdentity && typeof result.chatIdentity === 'object' && !Array.isArray(result.chatIdentity)
+    && Object.keys(result.chatIdentity).sort().join(',') === 'displayName,guiDisplayNameUnique,kind,uiIdentityVerified'
+    && result.scope?.requested && typeof result.scope.requested === 'object' && !Array.isArray(result.scope.requested)
+    && Object.keys(result.scope.requested).sort().join(',') === Object.keys(scope).sort().join(','));
+  if (result.chatName !== scope.chatName || result.scope?.kind !== expectedKind
+      || !guiShapeMatches
       || result.scope?.requested?.identityOnly !== scope.identityOnly
+      || result.scope?.requested?.guiIdentityOnly !== scope.guiIdentityOnly
       || (scope.identityOnly && (result.count !== 0 || result.scope.truncated !== false || !/^chat:[0-9a-f]{24}$/u.test(result.chatRef ?? '')))
       || !['direct', 'group'].includes(result.chatIdentity?.kind)
       || result.chatIdentity?.displayName !== scope.chatName || result.chatIdentity?.uiIdentityVerified !== false
+      || (scope.guiIdentityOnly && result.chatIdentity?.guiDisplayNameUnique !== true)
       || (scope.chatType && scope.chatType !== 'auto' && result.chatIdentity.kind !== scope.chatType)
       || result.scope?.requested?.chatName !== scope.chatName
       || result.scope?.requested?.chatType !== scope.chatType

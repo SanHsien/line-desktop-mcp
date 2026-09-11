@@ -5,10 +5,33 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { LineDesktopMCPServer } from '../src/server.js';
 import { LineUi } from '../src/extensions/line-ui.mjs';
+import { LineAutomation } from '../src/automation/line-automation.js';
+import { LineToolError } from '../src/extensions/line-runtime.mjs';
 
 // Captured from upstream c138ace, before adding the opt-in extension.
 const legacyTools = JSON.parse(await fs.readFile(new URL('./fixtures/legacy-tools.json', import.meta.url), 'utf8'));
 const body = result => JSON.parse(result.content.find(item => item.type === 'text').text);
+const legacyContract = tools => tools.map(({ name, inputSchema }) => ({ name, inputSchema }));
+
+function assertHonestDefaultDescriptions(tools, runtimePlatform) {
+  assert.deepEqual(legacyContract(tools), legacyContract(legacyTools));
+  for (const tool of tools) {
+    if (runtimePlatform === 'darwin') {
+      assert.match(tool.description, /Unavailable on macOS/u);
+      assert.match(tool.description, /LINE_CHAT_VERIFICATION_UNAVAILABLE/u);
+      continue;
+    }
+    assert.match(tool.description, /already be open/u);
+    assert.match(tool.description, /LINE_MCP_CUA_DRIVER/u);
+    assert.match(tool.description, /LINE_MCP_PYTHON/u);
+    assert.match(tool.description, /LINE_MCP_SQLITE3MC_DLL/u);
+  }
+  if (runtimePlatform === 'win32') {
+    const descriptions = Object.fromEntries(tools.map(tool => [tool.name, tool.description]));
+    assert.match(descriptions.send_message_manual, /Stage a message draft without sending/u);
+    assert.match(descriptions.send_message_auto, /Send one approved message immediately/u);
+  }
+}
 
 async function connect(t, options = {}) {
   const calls = [];
@@ -29,16 +52,16 @@ async function connect(t, options = {}) {
   return { client, calls };
 }
 
-test('default Windows and macOS tools exactly preserve the five upstream descriptors', async t => {
+test('default Windows and macOS tools preserve legacy names, order and schemas with honest platform descriptions', async t => {
   for (const runtimePlatform of ['win32', 'darwin']) {
     const { client } = await connect(t, { extensionsEnabled: false, runtimePlatform });
-    assert.deepEqual((await client.listTools()).tools, legacyTools);
+    assertHonestDefaultDescriptions((await client.listTools()).tools, runtimePlatform);
   }
 });
 
-test('the Windows-only opt-in leaves macOS on its original five tools', async t => {
+test('the Windows-only opt-in leaves macOS on five unavailable legacy contracts', async t => {
   const { client } = await connect(t, { extensionsEnabled: true, runtimePlatform: 'darwin' });
-  assert.deepEqual((await client.listTools()).tools, legacyTools);
+  assertHonestDefaultDescriptions((await client.listTools()).tools, 'darwin');
 });
 
 test('default history and manual send use the original handlers and response shapes', async t => {
@@ -64,6 +87,9 @@ test('opt-in exposes 29 unique tools and validates history before any automation
   assert.ok(tools.some(tool => tool.name === 'send_file_manual'));
   const capabilities = body(await client.callTool({ name: 'get_line_capabilities', arguments: {} }));
   assert.equal(capabilities.capabilities.length, 35);
+  const chatOpen = capabilities.capabilities.find(capability => capability.id === 'chat_open');
+  assert.match(chatOpen.name, /已開啟/u);
+  assert.match(chatOpen.limit, /does not navigate/u);
   assert.deepEqual(calls, []);
   const invalid = await client.callTool({ name: 'get_line_chat_messages', arguments: { chatName: 'Example Chat', date: '2026-02-30' } });
   assert.equal(invalid.isError, true);
@@ -75,7 +101,7 @@ test('opt-in exposes 29 unique tools and validates history before any automation
   assert.equal(calls.length, 1);
 });
 
-test('missing optional CUA does not prevent metadata or history and never falls through to legacy sends', async t => {
+test('missing optional CUA does not prevent metadata and never falls through to legacy sends', async t => {
   const previous = process.env.LINE_MCP_CUA_DRIVER;
   const previousPython = process.env.LINE_MCP_PYTHON;
   delete process.env.LINE_MCP_CUA_DRIVER;
@@ -95,4 +121,72 @@ test('missing optional CUA does not prevent metadata or history and never falls 
   assert.equal(send.isError, true);
   assert.equal(body(send).code, 'LINE_UI_BACKEND_UNAVAILABLE');
   assert.deepEqual(calls, []);
+});
+
+test('real default facade refuses unavailable chat verification over MCP before backend activity', async t => {
+  const previous = process.env.LINE_MCP_CUA_DRIVER;
+  delete process.env.LINE_MCP_CUA_DRIVER;
+  t.after(() => {
+    if (previous === undefined) delete process.env.LINE_MCP_CUA_DRIVER;
+    else process.env.LINE_MCP_CUA_DRIVER = previous;
+  });
+  for (const runtimePlatform of ['win32', 'darwin']) {
+    const backendCalls = [];
+    const automation = Object.create(LineAutomation.prototype);
+    automation.platform = runtimePlatform;
+    automation.automation = new Proxy({}, { get: (_target, name) => async () => {
+      backendCalls.push(name);
+      assert.fail(`Unsafe backend action: ${String(name)}`);
+    } });
+    // Keep the real public facade/UI routing; only replace the cross-process lock.
+    automation.runOperation = (_kind, action) => action();
+    const { client } = await connect(t, { automation, extensionsEnabled: false, runtimePlatform });
+    assertHonestDefaultDescriptions((await client.listTools()).tools, runtimePlatform);
+    for (const descriptor of legacyTools) {
+      const args = descriptor.name.startsWith('send_')
+        ? { chatName: 'Example Chat', message: 'must not send' }
+        : { chatName: 'Example Chat' };
+      const result = await client.callTool({ name: descriptor.name, arguments: args });
+      assert.equal(result.isError, true, `${runtimePlatform}: ${descriptor.name}`);
+      assert.equal(body(result).code, runtimePlatform === 'darwin'
+        ? 'LINE_CHAT_VERIFICATION_UNAVAILABLE' : 'LINE_UI_BACKEND_UNAVAILABLE');
+      assert.equal(body(result).operationMayHaveCompleted, false);
+      assert.equal(body(result).history, undefined);
+      assert.equal(body(result).messages, undefined);
+    }
+    assert.deepEqual(backendCalls, []);
+  }
+});
+
+test('default MCP history and send refuse ambiguous local identity before any UI or legacy call', async t => {
+  for (const code of ['CHAT_AMBIGUOUS', 'GUI_IDENTITY_UNAVAILABLE']) {
+    const backendCalls = [];
+    const automation = Object.create(LineAutomation.prototype);
+    automation.platform = 'win32';
+    automation.automation = new Proxy({}, { get: (_target, name) => async () => {
+      backendCalls.push(name);
+      assert.fail(`Unexpected legacy action: ${String(name)}`);
+    } });
+    automation.runOperation = (_kind, action) => action();
+    automation._verifiedUi = new LineUi({
+      automation,
+      runOperation: (_kind, action) => action(),
+      readChatIdentity: async () => { throw new LineToolError(code, 'Synthetic identity refusal.'); },
+      withClient: async action => action({ tools: new Set(), call: async name => {
+        backendCalls.push(name);
+        assert.fail(`Unexpected CUA call: ${name}`);
+      } }),
+    });
+    const { client } = await connect(t, { automation, extensionsEnabled: false, runtimePlatform: 'win32' });
+    for (const descriptor of legacyTools) {
+      const args = descriptor.name.startsWith('send_')
+        ? { chatName: 'Example Chat', message: 'must not send' } : { chatName: 'Example Chat' };
+      const result = await client.callTool({ name: descriptor.name, arguments: args });
+      assert.equal(result.isError, true);
+      assert.equal(body(result).code, code);
+      assert.equal(body(result).operationMayHaveCompleted, false);
+      assert.equal(body(result).history, undefined);
+    }
+    assert.deepEqual(backendCalls, []);
+  }
 });
