@@ -1,0 +1,9 @@
+{
+  "repo": "https://github.com/bensonmaxai/line-desktop-mcp.git",
+  "branch": "main",
+  "reviewed_through": "b66fad4ac837240e8fc5ac3225bd04188dc7812c",
+  "reviewed_date": "2026-09-12",
+  "reviewed_pr_through": 0,
+  "reviewed_issue_through": 1,
+  "decision_log": "docs/DECISIONS.md"
+}

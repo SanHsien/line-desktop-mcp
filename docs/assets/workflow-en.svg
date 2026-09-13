@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="270" viewBox="0 0 1200 270" role="img" aria-labelledby="title desc">
+<title id="title">LINE Agent MCP — text and images to a confirmed reply</title>
+<desc id="desc">Read text and images, organize context, ask the user to approve a draft, send and verify.</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 10 5 0 10Z" fill="#22a562"/></marker></defs>
+<rect width="1200" height="270" rx="20" fill="#f3faf6"/>
+<g font-family="Segoe UI, Noto Sans, Noto Sans CJK TC, Noto Sans JP, Leelawadee UI, sans-serif" text-anchor="middle">
+<text x="600" y="40" font-size="23" font-weight="700" fill="#113b2b">LINE Agent MCP · v2.0.0</text>
+<path d="M236 153H259" stroke="#22a562" stroke-width="3" marker-end="url(#arrow)"/>
+<rect x="32" y="74" width="200" height="160" rx="16" fill="#ffffff" stroke="#c9e7d6"/>
+<circle cx="64" cy="105" r="15" fill="#ddf5e7"/>
+<text x="64" y="111" font-size="17" font-weight="700" fill="#176b47">1</text>
+<text x="132" y="158" font-size="20" font-weight="700" fill="#163d2d">Text + images</text>
+<text x="132" y="199" font-size="15" fill="#5d7969">Agent</text>
+<path d="M470 153H493" stroke="#22a562" stroke-width="3" marker-end="url(#arrow)"/>
+<rect x="266" y="74" width="200" height="160" rx="16" fill="#ffffff" stroke="#c9e7d6"/>
+<circle cx="298" cy="105" r="15" fill="#ddf5e7"/>
+<text x="298" y="111" font-size="17" font-weight="700" fill="#176b47">2</text>
+<text x="366" y="158" font-size="20" font-weight="700" fill="#163d2d">Build context</text>
+<text x="366" y="199" font-size="15" fill="#5d7969">Agent</text>
+<path d="M704 153H727" stroke="#22a562" stroke-width="3" marker-end="url(#arrow)"/>
+<rect x="500" y="74" width="200" height="160" rx="16" fill="#176b47" stroke="#c9e7d6"/>
+<circle cx="532" cy="105" r="15" fill="#e7faef"/>
+<text x="532" y="111" font-size="17" font-weight="700" fill="#176b47">3</text>
+<text x="600" y="158" font-size="20" font-weight="700" fill="#ffffff">Approve draft</text>
+<text x="600" y="199" font-size="15" fill="#d3f0df">User</text>
+<path d="M938 153H961" stroke="#22a562" stroke-width="3" marker-end="url(#arrow)"/>
+<rect x="734" y="74" width="200" height="160" rx="16" fill="#ffffff" stroke="#c9e7d6"/>
+<circle cx="766" cy="105" r="15" fill="#ddf5e7"/>
+<text x="766" y="111" font-size="17" font-weight="700" fill="#176b47">4</text>
+<text x="834" y="158" font-size="20" font-weight="700" fill="#163d2d">Send</text>
+<text x="834" y="199" font-size="15" fill="#5d7969">Agent</text>
+<rect x="968" y="74" width="200" height="160" rx="16" fill="#ffffff" stroke="#c9e7d6"/>
+<circle cx="1000" cy="105" r="15" fill="#ddf5e7"/>
+<text x="1000" y="111" font-size="17" font-weight="700" fill="#176b47">5</text>
+<text x="1068" y="158" font-size="20" font-weight="700" fill="#163d2d">Check result</text>
+<text x="1068" y="199" font-size="15" fill="#5d7969">Agent</text>
+</g></svg>

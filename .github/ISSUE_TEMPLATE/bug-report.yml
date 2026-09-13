@@ -1,0 +1,40 @@
+name: 🐛 問題回報 (Bug Report)
+description: 回報 line-desktop-mcp 在 Windows 環境或維護骨架中的錯誤
+title: "fix: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感謝回報問題！請先確認問題在最新 `main` 分支仍可重現。
+        **請勿張貼真實 LINE 聊天內容、圖片、帳號識別碼或個人機密資料。**
+  - type: textarea
+    id: description
+    attributes:
+      label: 問題描述
+      description: 請清楚描述發生了什麼非預期的行為。
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 重現步驟
+      description: 請列出逐步重現此問題的指令或操作流程。
+      placeholder: |
+        1. 執行 `...`
+        2. 呼叫工具 `...`
+        3. 觀察到錯誤 `...`
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: 執行環境
+      description: 請說明你的作業系統、Node.js、Python 及 LINE 版本。
+      value: |
+        - OS: Windows 11 (build ...)
+        - Node.js:
+        - Python:
+        - LINE Desktop 版本:
+    validations:
+      required: true

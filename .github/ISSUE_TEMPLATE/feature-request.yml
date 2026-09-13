@@ -1,0 +1,23 @@
+name: 💡 功能建議 (Feature Request)
+description: 提出針對 Windows 維護體驗或自動化功能的改進建議
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感謝你的建議！本 repo 為 Windows-first 維護 fork，核心功能以遵循上游為主。
+  - type: textarea
+    id: problem
+    attributes:
+      label: 想解決的問題
+      description: 請說明目前遇到的痛點或使用限制。
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: 建議方案
+      description: 請描述你希望如何改善或新增什麼功能。
+    validations:
+      required: true

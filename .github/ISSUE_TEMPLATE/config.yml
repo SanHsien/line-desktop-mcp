@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 GitHub Discussions
+    url: https://github.com/SanHsien/line-desktop-mcp/discussions
+    about: 問題諮詢、經驗交流與使用心得分享
+  - name: 🔒 Report a Security Vulnerability
+    url: https://github.com/SanHsien/line-desktop-mcp/security/advisories/new
+    about: 私下回報安全漏洞或未經授權的資訊洩漏風險
