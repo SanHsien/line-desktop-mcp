@@ -382,11 +382,18 @@ export function createLineExtensions(automation, { ui, now = () => new Date(), f
   }
 
   async function writeVerifiedExport(outputPath, content) {
-    const handle = await fileSystem.open(outputPath, 'wx');
+    // Read back through the same descriptor that created the file, so a path
+    // swapped after creation cannot stand in for the bytes we wrote.
+    const handle = await fileSystem.open(outputPath, 'wx+');
+    const expected = Buffer.from(content);
     let postCreateFailed = false;
+    let bytes;
     try {
       await handle.writeFile(content, 'utf8');
       await handle.sync();
+      bytes = Buffer.alloc(expected.length + 1);
+      const { bytesRead } = await handle.read(bytes, 0, bytes.length, 0);
+      bytes = bytes.subarray(0, bytesRead);
     } catch {
       postCreateFailed = true;
     }
@@ -396,15 +403,7 @@ export function createLineExtensions(automation, { ui, now = () => new Date(), f
       postCreateFailed = true;
     }
     if (postCreateFailed) throw exportUnverifiedError();
-
-    let bytes;
-    try {
-      bytes = await fileSystem.readFile(outputPath);
-      if (!Buffer.isBuffer(bytes)) throw new TypeError('Export readback was not a byte buffer.');
-    } catch {
-      throw exportUnverifiedError();
-    }
-    if (!bytes.equals(Buffer.from(content))) {
+    if (!bytes.equals(expected)) {
       throw new LineToolError(
         'LINE_EXPORT_VERIFY_FAILED',
         'Export readback differs. The created file was preserved for inspection.',

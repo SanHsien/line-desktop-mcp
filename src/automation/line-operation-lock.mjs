@@ -275,22 +275,21 @@ async function releaseOwnedLock(lock, beforeRelease) {
 }
 
 async function removeOnlyExactOwnedLock(lock) {
-  let beforeRead;
-  try {
-    beforeRead = await fs.lstat(lock.lockPath);
-  } catch (cause) {
-    throw createCleanupError('LINE_LOCK_OWNERSHIP_LOST', lock, cause);
-  }
-
-  if (!hasSameIdentity(beforeRead, lock.identity)) {
-    throw createCleanupError('LINE_LOCK_OWNERSHIP_LOST', lock);
-  }
-
+  // Identity and metadata come from one descriptor, so the file whose bytes we
+  // compare is the file whose (dev, ino) we checked.
   let currentMetadata;
+  let handle;
   try {
-    currentMetadata = await fs.readFile(lock.lockPath, 'utf8');
+    handle = await fs.open(lock.lockPath, 'r');
+    if (!hasSameIdentity(await handle.stat(), lock.identity)) {
+      throw createCleanupError('LINE_LOCK_OWNERSHIP_LOST', lock);
+    }
+    currentMetadata = await handle.readFile('utf8');
   } catch (cause) {
+    if (cause instanceof LineOperationCleanupError) throw cause;
     throw createCleanupError('LINE_LOCK_OWNERSHIP_LOST', lock, cause);
+  } finally {
+    await handle?.close().catch(() => {});
   }
 
   let afterRead;
