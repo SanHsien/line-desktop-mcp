@@ -1,0 +1,2 @@
+cryptography>=42.0.0  # freshness-hold: upstream compatibility floor for AES-GCM and session decryption
+Pillow>=10.0.0  # freshness-hold: upstream compatibility floor for preview thumbnail decoding
