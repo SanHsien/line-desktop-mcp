@@ -105,6 +105,7 @@
 | `src/extensions/line-extensions.mjs` | 採上游；匯出寫入已搬到 `src/extensions/line-export.mjs` |
 | `src/extensions/line-export.mjs` | 疊回 fork 的修正：匯出內容改從建立檔案的同一個描述子回讀（`wx+`），不再用路徑重讀，避免建立後被換掉的路徑冒充寫入內容 |
 | `test/line-export.test.mjs` | 上游「回讀不符」測試原本模擬 `readFile`；fork 不走路徑重讀，改在描述子的 `read` 注入不符內容，斷言不變 |
+| `test/line-ocr.test.mjs` | 上游新增的 padding 斷言寫死中文「測試」；GitHub Windows runner 只有英文 OCR。比照 fork 既有做法依 `language` 分流（zh-Hant 驗「測試」、其他驗 `LINEOCRDEMO`） |
 | `README.md` | 採上游 v3.3.5 內容，只疊回 fork 開頭（語言列、fork 說明、初始化指令） |
 | `README.en.md` | fork 自己的版本；更新版本、工具數（33＋5 個舊別名）並補 v3.x 摘要 |
 | `.gitignore` | 兩邊合併 |

@@ -229,7 +229,8 @@ test('runs Windows.Media.Ocr against a generated local business-neutral PNG', { 
   assert.equal(padded.height,260);
   assert.equal(padded.coordinateSpace,'input-png-pixels');
   assert.equal(padded.scaleFactor,1);
-  assert.match(padded.lines.map(line=>line.text).join('').replace(/\s+/gu,''),/測試/u);
+  assert.match(padded.lines.map(line=>line.text).join('').replace(/\s+/gu,''),
+    /^zh-Hant/i.test(padded.language) ? /測試/u : /LINEOCRDEMO/u);
   for(const line of padded.lines){
     assert.ok(line.x>=0 && line.y>=0 && line.x+line.width<=800.001
       && line.y+line.height<=260.001,'padding is removed without clipping original geometry');
