@@ -1,10 +1,11 @@
 {
   "name": "line-desktop-mcp",
-  "version": "3.0.0",
+  "version": "3.3.5",
   "description": "LINE Agent MCP: scoped Windows LINE Desktop history, media previews and confirmed reply workflows",
   "main": "./src/server.js",
   "bin": {
-    "line-desktop-mcp": "./src/server.js"
+    "line-desktop-mcp": "./src/server.js",
+    "line-cli": "./src/cli.js"
   },
   "type": "module",
   "scripts": {
@@ -60,10 +61,13 @@
     "src/**/*",
     "scripts/run-tests.js",
     "scripts/run-python-tests.js",
+    "scripts/benchmark-large-reader.py",
     "docs/**/*.md",
     "docs/assets/*.png",
     "docs/assets/*.svg",
     "CHANGELOG.md",
-    "test/**/*"
+    "test/**/*",
+    "!**/__pycache__/**",
+    "!**/*.pyc"
   ]
 }

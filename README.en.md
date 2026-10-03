@@ -27,17 +27,19 @@ pwsh -NoProfile -File tools\bootstrap_dev.ps1
 
 Choose a chat and date range. Let your AI assistant organize the conversation together with available cached images into progress, attachment context and next steps. MCP supplies previews to an image-capable model; original, thumbnail and missing states stay explicit.
 
-[Download v3.0.0](https://github.com/bensonmaxai/line-desktop-mcp/releases/tag/v3.0.0) · [Release notes](docs/releases/v3.0.0.en.md) · [Install](docs/quickstart-windows.md) · [Technical contract](docs/windows-extensions.md)
+[v3.3.5 release notes](docs/releases/v3.3.5.en.md) · [All release notes](docs/releases/README.md) · [Install](docs/quickstart-windows.md) · [Technical contract](docs/windows-extensions.md)
 
 **LINE Agent MCP**, the Windows community edition maintained by [bensonmaxai](https://github.com/bensonmaxai/line-desktop-mcp), based on [Geoffrey Wang's original project](https://github.com/dtwang/line-desktop-mcp). It connects a local MCP client to a signed-in LINE Desktop. Codex is our everyday client; other local MCP clients can connect too. This project is not affiliated with LINE.
 
-Set `LINE_MCP_EXTENSIONS=1` on Windows for **29 tools**. Without the flag, **five tools** are listed. Their names and input schemas remain. macOS lists the same five names, but reads and sends are unavailable in this release.
+Set `LINE_MCP_EXTENSIONS=1` on Windows to list **33 current tools**, plus **five callable legacy aliases** that are not listed. Without the flag, **five tools** are listed. macOS lists the same five names, but reads and sends are unavailable in this release.
+
+**Since v3.0.0 (through v3.3.5):** streamed snapshots lift the 256 MiB database blocker (default 2 GiB, `LINE_MCP_MAX_SOURCE_BYTES`); a read-only `line-cli`; plain-text sends that bind the exact chat and own sender and check for a new local own message (`RECORDED_LOCAL` is not delivery proof); bound recipients and original-message forwarding with identity checks; and search/OCR fixes for groups, direct chats and recent chats. Uncertain operations are never automatically resent. [Release notes](docs/releases/README.md)
 
 **v3.0.0 security update:** Every Windows named-chat GUI operation, including the five defaults, needs CUA and the configured local reader. A private metadata-only check resolves one unique group or existing direct chat without reading messages, then verifies an already-open LINE header. Automatic first-result navigation is disabled. macOS reads/sends refuse before automation. Reply images are cropped to the requested chat; APNG previews contain one frame. GUI history copy restores the prior available clipboard formats when no newer writer intervenes. [Release notes](docs/releases/v3.0.0.en.md) · [Migration](docs/MIGRATING.md#upgrading-to-v300)
 
 ## What it does
 
-| Task | What v3.0.0 provides |
+| Task | What it provides |
 | --- | --- |
 | Follow up on work | Exact group/direct local history, explicit dates, up to 31 days, pagination and snapshot freshness |
 | Understand attachments | On-demand cached image previews, small PCM WAV blocks and explicit media availability |
@@ -57,7 +59,7 @@ Ordinary text drafts are reviewed in Codex. The agent performs visual UI checks;
 ## Install and migrate
 
 ```powershell
-git clone --branch v3.0.0 --depth 1 https://github.com/bensonmaxai/line-desktop-mcp.git
+git clone --branch v3.3.5 --depth 1 https://github.com/bensonmaxai/line-desktop-mcp.git
 cd line-desktop-mcp
 npm ci --ignore-scripts
 ```

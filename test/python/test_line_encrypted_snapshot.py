@@ -272,34 +272,40 @@ class EncryptedSnapshotTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "SOURCE_REPARSE")
 
     def test_max_source_bytes_configuration_and_size_limit(self):
-        # Default is 256MB
-        self.assertEqual(snapshot.get_max_file_bytes(), 256 * 1024 * 1024)
+        # Upstream issue #1 (fork fix 2026-09-12), now on upstream's v3.0.1+ contract:
+        # LINE_MCP_MAX_SOURCE_BYTES bounds the streamed snapshot and fails closed.
+        out = self.work / "out"
+        out.mkdir()
 
-        # Invalid env values fall back to default
         with mock.patch.dict(os.environ, {"LINE_MCP_MAX_SOURCE_BYTES": "invalid"}):
-            self.assertEqual(snapshot.get_max_file_bytes(), 256 * 1024 * 1024)
-        with mock.patch.dict(os.environ, {"LINE_MCP_MAX_SOURCE_BYTES": "-100"}):
-            self.assertEqual(snapshot.get_max_file_bytes(), 256 * 1024 * 1024)
+            with self.assertRaises(snapshot.SnapshotError) as caught:
+                snapshot.capture_snapshot_to(self.database, out)
+            self.assertEqual(caught.exception.code, "SOURCE_LIMIT_INVALID")
 
-        # Valid env values configure the cap
         with mock.patch.dict(os.environ, {"LINE_MCP_MAX_SOURCE_BYTES": "524288"}):
-            self.assertEqual(snapshot.get_max_file_bytes(), 524288)
+            self.assertEqual(snapshot.load_snapshot_limits().max_source_bytes, 524288)
 
-        # When the cap is smaller than the database file, SOURCE_TOO_LARGE is raised
+        # A cap smaller than the database file raises SOURCE_TOO_LARGE
         with mock.patch.dict(os.environ, {"LINE_MCP_MAX_SOURCE_BYTES": "64"}):
             with self.assertRaises(snapshot.SnapshotError) as caught:
-                snapshot.capture_snapshot(self.database)
+                snapshot.capture_snapshot_to(self.database, out)
             self.assertEqual(caught.exception.code, "SOURCE_TOO_LARGE")
+        snapshot.cleanup_snapshot(out)
 
-        # When the cap is sufficiently large, snapshot capture succeeds
+        # A sufficiently large cap lets the snapshot through
         with mock.patch.dict(os.environ, {"LINE_MCP_MAX_SOURCE_BYTES": str(10 * 1024 * 1024)}):
-            data, wal, meta = snapshot.capture_snapshot(self.database)
-            self.assertIsNotNone(data)
+            result = snapshot.capture_snapshot_to(self.database, out)
+            self.assertIsNotNone(result)
+        snapshot.cleanup_snapshot(out)
 
-        # Explicit max_bytes parameter overrides env
-        with self.assertRaises(snapshot.SnapshotError) as caught:
-            snapshot.capture_snapshot(self.database, max_bytes=64)
-        self.assertEqual(caught.exception.code, "SOURCE_TOO_LARGE")
+        # Explicit limits override the environment
+        with mock.patch.dict(os.environ, {"LINE_MCP_MAX_SOURCE_BYTES": str(10 * 1024 * 1024)}):
+            with self.assertRaises(snapshot.SnapshotError) as caught:
+                snapshot.capture_snapshot_to(
+                    self.database, out, limits=snapshot.SnapshotLimits(max_source_bytes=64))
+            self.assertEqual(caught.exception.code, "SOURCE_TOO_LARGE")
+        snapshot.cleanup_snapshot(out)
+        out.rmdir()  # tearDown removes only direct file children
 
 
 if __name__ == "__main__":

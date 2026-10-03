@@ -60,3 +60,4 @@ __pycache__/
 .ruff_cache/
 upstream-review-report.md
 dependency-freshness-report.md
+candidate-package-manifest.json

@@ -85,3 +85,11 @@ Baseline 代表「已審查」，不代表「全部已合併」。
 - Issue：仍為 `#1`，無新項目。
 
 水位已寫入 [`tools/upstream_baseline.json`](../tools/upstream_baseline.json)：commit `555c7c72a7f52e86bce26513fd7214b489614aed`、PR #2、issue #1。
+
+## 2026-10-03：採用 `555c7c7`（v3.3.5）
+
+- Commit：`b66fad4..555c7c7` 13 筆整棵採用，壓成 `main` 上的單一 commit；衝突解法與驗證見 [`DECISIONS.md`](DECISIONS.md) 同日條目。
+- PR：`#2` 不採用（v3.x 已重寫相關檔案）。
+- Issue：`#1` 由上游 v3.0.1 的串流快照解決（上游 issue 仍 OPEN）。
+
+上游 `main` 仍停在 `555c7c7`，水位不變：commit `555c7c72a7f52e86bce26513fd7214b489614aed`、PR #2、issue #1。

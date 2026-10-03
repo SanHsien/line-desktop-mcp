@@ -89,3 +89,30 @@
 **不合併的理由**：(1) 兩邊歷史無共同祖先（本 fork 已壓縮為單一根 commit），只能以補丁方式引入，7,400 行 `src/` 變動無法逐筆 `cherry-pick`；(2) 本 fork 修改過其中 4 個共有的核心檔（`line-extensions.mjs`、`line_encrypted_snapshot.py`、`line_scoped_core.py`、`line-reader.py`），會產生大規模衝突；(3) 本機 gate（`dev_check.ps1`）只跑 ruff 與維護契約測試，不跑 Node 測試，也無真實 LINE Desktop 可驗證 UI／OCR 行為，無法證明採用後行為正確。
 
 **觸發條件**：維護者要求升級到 v3.x 時，以 `git diff b66fad4 555c7c7` 為基礎另立分段工作（先 v3.3.0／v3.3.1 的送出前驗證，再 OCR 修正），每段附 Node 測試與 LINE Desktop 實機驗證。
+
+## 2026-10-03：整棵採用上游 v3.3.5（`555c7c7`）
+
+**決定**：採用 2026-09-30 列為 adoption pending 的 `b66fad4..555c7c7` 全部 13 個 commit（v3.0.1–v3.3.5），以整棵樹方式進 `main`，壓成單一 commit；上游歷史不帶回 `main`。觸發條件由維護者 2026-10-02 指示「上游待採用全部處理」成立。
+
+**做法**：兩邊沒有共同祖先，所以在本機暫時分支上先 `git merge -s ours --allow-unrelated-histories b66fad4`（不改樹，只給三方合併一個 base），再 `git merge v3.3.5`，解完衝突後把結果樹提交成 `main` 上的一個 commit。暫時分支不推送。
+
+**衝突與取捨**：
+
+| 檔案 | 解法 |
+| --- | --- |
+| `src/extensions/python/line_encrypted_snapshot.py` | 採上游。fork 2026-09-12 為上游 issue #1 加的 `get_max_file_bytes()`／`max_bytes` 已被上游 v3.0.1 的串流快照取代：同一個 `LINE_MCP_MAX_SOURCE_BYTES`，預設 2 GiB、硬上限 8 GiB，無效值改為 `SOURCE_LIMIT_INVALID` 拒絕而不是退回預設 |
+| `test/python/test_line_encrypted_snapshot.py` | fork 的上限測試保留，改寫成新介面（`capture_snapshot_to`、`load_snapshot_limits`、`SnapshotLimits`），驗同樣的性質：無效值拒絕、過小上限回 `SOURCE_TOO_LARGE`、足夠上限可通過、明確上限優先於環境變數 |
+| `src/extensions/line-extensions.mjs` | 採上游；匯出寫入已搬到 `src/extensions/line-export.mjs` |
+| `src/extensions/line-export.mjs` | 疊回 fork 的修正：匯出內容改從建立檔案的同一個描述子回讀（`wx+`），不再用路徑重讀，避免建立後被換掉的路徑冒充寫入內容 |
+| `test/line-export.test.mjs` | 上游「回讀不符」測試原本模擬 `readFile`；fork 不走路徑重讀，改在描述子的 `read` 注入不符內容，斷言不變 |
+| `README.md` | 採上游 v3.3.5 內容，只疊回 fork 開頭（語言列、fork 說明、初始化指令） |
+| `README.en.md` | fork 自己的版本；更新版本、工具數（33＋5 個舊別名）並補 v3.x 摘要 |
+| `.gitignore` | 兩邊合併 |
+
+**驗證**：`npm test` 381 pass／0 fail；`python -B -m unittest discover -s test/python -p "test_*.py"` 140 tests OK（8 skipped）；`tools\dev_check.ps1` 綠。
+
+**未驗證**：送出、轉發與 OCR 的實機行為（需要已登入的 LINE Desktop 與真實聊天），本輪只有合成測試。實際使用送出／轉發前，先在測試聊天室確認一次。
+
+**既存、非本輪引入**：`npm audit --omit=dev` 的 2 個 moderate（`fast-uri`、`ip-address`，皆為傳遞依賴），採用前的 `main` 就有，由 Dependabot 處理。
+
+**PR #2**（上游關閉未合併，多個 LINE 資料庫與無名單聊）：不採用。它改的 `line_encrypted_snapshot.py`／`line-reader.py` 在 v3.x 已重寫，原補丁無法套用；上游若重新提出再審。
