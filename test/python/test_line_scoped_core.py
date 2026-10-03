@@ -109,7 +109,9 @@ class ScopeTests(unittest.TestCase):
             with self.assertRaises(core.ReaderError) as caught:
                 core.read_scoped(self.db, {**self.args, **extra}, {})
             self.assertEqual(caught.exception.code, expected)
-        self.db.set_authorizer(None)
+        # set_authorizer(None) only clears the callback from Python 3.11 on;
+        # an allow-all callback behaves the same on the supported 3.10.
+        self.db.set_authorizer(lambda *_: sqlite3.SQLITE_OK)
         self.db.execute('DELETE FROM _profile')
         with self.assertRaises(core.ReaderError) as caught:
             core.read_scoped(self.db, {**self.args,
