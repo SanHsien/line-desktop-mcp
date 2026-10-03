@@ -10,6 +10,15 @@ LINE 官方 API。
 
 v3.0.0 延續指定對話的文字與附件線索讀取與圖片預覽，並把所有 Windows 指定
 聊天室 GUI 路徑改為先通過本機身分核對的 fail-closed 流程。
+v3.2.0 把指定日期的讀取、搜尋、匯出與核對導向共用的受限本機讀取器，
+並對普通文字傳送增加本人本機紀錄回執與防重送紀錄。`RECORDED_LOCAL`
+不代表對方收到或已讀。
+
+v3.3.0 新增最近 14／30 日聊天室清單、收件人預檢與原訊息轉發。對唯一既有直聊，
+可使用聊天室／本人識別參照與實際畫面證據，處理未聊天好友同名造成的阻擋。
+`prepare_line_send_target` 只核對，不打字、不送出；一般唯一名稱仍保留自動開啟。
+轉發的 prepare／confirm／verify／cancel 將來源與單一收件人綁定，結果不確定時
+不自動重送。取消準備不等於收回。[實測結果與限制](releases/v3.3.0.zh-TW.md)
 
 ## 先看兩個主要能力
 
@@ -46,7 +55,7 @@ v2.0.0 曾在同一台測試電腦上，把文字歷史的冷讀核心從 **17.8
 
 ## 本機上下文讀取的範圍
 
-`get_line_local_messages` 是 v3.0.0 的主要讀取工具：
+`get_line_local_messages` 是主要的指定範圍本機讀取工具：
 
 - 一次只讀一個指定的群組或個人聊天室，日期範圍最多 31 個日曆日。
 - 支援字面文字搜尋、筆數限制與 `pagination.nextCursor`；換頁時須維持同一個
@@ -55,7 +64,7 @@ v2.0.0 曾在同一台測試電腦上，把文字歷史的冷讀核心從 **17.8
   完整歷史，也不等於帳號備份。
 - 同名群組與個人對話無法唯一判斷時會拒絕，必須明確指定正確類型。
 - `compareWithUi: true` 是選用的一次 GUI 對照；它可能把 LINE 帶到前景或標記
-  已讀，且在 v3.0.0 需通過 CUA 與指定聊天室的身分核對。預設不做 GUI 對照，
+  已讀，且需通過 CUA 與指定聊天室的身分核對。預設不做 GUI 對照，
   本機讀取失敗時不會偷偷改用 GUI；對照不可用時保留本機結果並回報不可用。
 
 開始時應以「指定聊天室＋明確日期＋metadata」提出請求。例如：
@@ -68,11 +77,18 @@ v2.0.0 曾在同一台測試電腦上，把文字歷史的冷讀核心從 **17.8
 如果回傳內容指出需看圖，再只選那一頁的 `sourceRef` 要求預覽。這樣做能保留
 文字脈絡，也避免對不相關圖片進行處理。
 
+v3.2.0 的 `get_line_chat_messages`、`search_line_chat_messages`、
+`export_line_chat_history`、`verify_line_message` 若指定單一 `date`，
+或完整 `dateFrom`／`dateTo`（最多 31 天），會共用受限本機讀取器；
+未指定日期的舊用法仍讀 LINE 介面已載入的歷史。本機結果不會自動改用 GUI，
+`compareWithUi: true` 是另行要求的介面對照，可能把聊天室標為已讀。
+
 ## 工具模式與能力範圍
 
 在 Windows 把 `LINE_MCP_EXTENSIONS=1` 設為精確值 `1` 時，MCP 提供
-**29 個工具**。沒有這個值時仍列出 5 個預設 descriptor；其名稱、順序與輸入
-schema 保留，但 v3.0.0 已按平台更新描述與可用性；macOS 也列出這五個 descriptor。
+**33 個列出的工具**；另有 5 個舊別名仍可呼叫但不列出，總共實作
+38 個 descriptor。沒有這個值時仍列出 5 個預設 descriptor；
+macOS 也列出這五個預設 descriptor。
 
 v3.0.0 要求 Windows 所有指定聊天室的 GUI 路徑（含預設五工具）同時設定 CUA
 與本機 Python／SQLite3MC 讀取器。私有的 metadata-only 核對會從新快照確認唯一
@@ -81,15 +97,18 @@ v3.0.0 要求 Windows 所有指定聊天室的 GUI 路徑（含預設五工具�
 對得上時，都會在讀取／操作 LINE UI 或執行 AHK／剪貼簿 helper 前拒絕。CUA 的
 連線與工具協商可能先完成，但不會成為跳過核對的替代路徑。
 
-`open_line_chat` 只驗證已經開啟的授權聊天室，不會自動選搜尋第一筆；應先由使用者
-或引導式 LINE UI 流程開啟，再交給 MCP 核對新鮮標頭。任何輸入前後都會重新確認
+v3.3.0 的配對直聊例外會另讀最多 30 則限定近期內容，再獨立核對畫面上最近兩則
+不同文字、日期、分鐘與方向。其他既有聊天室或顯示名稱衝突仍拒絕。
+
+`open_line_chat` 會解析精確聊天室，必要時開啟或重用有標題的視窗，
+並核對 HWND、PID、標題與新鮮標頭；搜尋第一筆本身不算身分證明。任何輸入前後都會重新確認
 目前聊天身分；不能維持確定性就拒絕，不會自動繼續或重試。工具／能力 metadata
 不需要聊天室身分證明；`get_line_status` 在 GUI 狀態不可用時仍保留獨立的本機讀取器
 狀態。純本機資料庫歷史保留原有讀取器前置條件、不需要 CUA；投票讀取也保留原有
 的本機群組身分與 CUA 前置條件。本機唯一性快照與新鮮 UI 標頭不是原子的
 DB-ID-to-UI 映射，同時改名或建立聊天室仍是競態限制。macOS 保留五個 descriptor，
 但舊版讀取／發送會在自動化前回報 `LINE_CHAT_VERIFICATION_UNAVAILABLE`。完整
-相容性與回退步驟見[升級至 v3.0.0](MIGRATING.md#upgrading-to-v300)。
+相容性與回退步驟見[升級至 v3.3.0](MIGRATING.md#upgrading-to-v330)。
 
 | 類別 | 主要內容 |
 | --- | --- |
@@ -101,7 +120,7 @@ DB-ID-to-UI 映射，同時改名或建立聊天室仍是競態限制。macOS �
 
 `get_line_capabilities({})` 是安裝後最安全的第一個測試：它只列出 bridge 的
 能力，不讀聊天室、不讀媒體、不操作 LINE，也不傳送訊息。已啟用 Windows
-擴充時，預期結果含 `toolCount: 29`。
+擴充時，預期結果含 `toolCount: 26`。
 
 `get_line_status({})` 同樣不讀聊天室，但它只回傳 LINE build 與程序狀態。
 其中的 `localReader` 不是 Python 套件、SQLite3MC DLL 雜湊或實際資料庫讀取
@@ -132,6 +151,24 @@ observer 仍可能留下短暫複製內容，比對與還原之間也還有很�
 群組中的 `@名字` 純文字不等於 LINE 的藍色提及。若需要通知效果，必須在
 LINE UI 中選取真正的成員 token，並在送出前後以新鮮畫面確認；本機紀錄或
 純文字無法證明通知已送達。
+
+## 大型本機資料庫（v3.0.0 後的修正）
+
+包含 Issue #1 修正的版本改用分塊加密快照；資料庫預設上限為 2 GiB，WAL
+為 256 MiB，合計 2304 MiB。初始化只讀驗證金鑰所需的 4 KiB 檔頭，取得
+金鑰後才擷取一次完整的新快照，並重新驗證金鑰。快照仍檢查 DB／WAL 的
+身分、時間、大小、雜湊及最後有效提交，不會寫入 LINE 原始資料庫。
+
+`SOURCE_TOO_LARGE` 會回傳超限來源、實際／允許位元組及對應設定名稱。
+縮小日期或訊息筆數不會縮小來源檔；不需要刪除聊天紀錄來使用修正版。
+上限及五分鐘的預設讀取逾時都可在 MCP client 的環境設定中明確調整，
+但保留硬上限。原始 v3.0.0 下載包尚未包含此修正與設定。
+
+快照記憶體不再隨整份來源大小成長，但仍須掃過檔案做一致性檢查，且需要
+容納加密副本的本機磁碟空間。子程序正常退出或逾時被強制結束後，父程序
+會確認退出並清理該次固定名稱的暫存檔；整個 server 被強制關閉或斷電
+仍可能留下加密暫存，沒有廣泛刪除的背景清理。
+完整設定與錯誤說明見[大型資料庫設定](quickstart-windows.md#large-local-databases)。
 
 ## 依賴與平台邊界
 
@@ -165,12 +202,12 @@ session；本專案不啟動常駐 daemon。OCR 走本機 Windows 元件，是�
 
 ## 傳輸、設定與升級
 
-v3.0.0 只支援本機 stdio，沒有 HTTP 或 REST 伺服器。舊 HTTP 參數會在啟動前
+v3.2.0 只支援本機 stdio，沒有 HTTP 或 REST 伺服器。舊 HTTP 參數會在啟動前
 被拒絕，不能把它當成仍有相同網路模式的升級。此版也不會從目前工作目錄自動
-讀取 `.env`；請在 MCP client 的環境設定中明確傳入所有 `LINE_MCP_*` 值。v3.0.0
-由同一個 GitHub repository 的 `v3.0.0` tag 發行，沒有 npm registry 或 MCPB 發行。
+讀取 `.env`；請在 MCP client 的環境設定中明確傳入所有 `LINE_MCP_*` 值。v3.2.0
+由同一個 GitHub repository 的 tag 發行，沒有 npm registry 或 MCPB 發行。
 
 從 v1.2.0 或 v2.0.0 升級時，保留舊 checkout 與 MCP 設定備份，在同一台電腦以
 sibling checkout 安裝 v3，然後把原本的 `line-desktop-mcp` MCP entry 改指向新版本。
 各版共用 `~/.line-desktop-mcp/operation.lock`，正常工作時只能有一個 active bridge。
-完整步驟、相容性差異與回退方法見[升級至 v3.0.0](MIGRATING.md#upgrading-to-v300)。
+完整步驟、相容性差異與回退方法見[升級至 v3.2.0](MIGRATING.md#upgrading-to-v320)。
