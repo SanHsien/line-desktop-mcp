@@ -77,7 +77,7 @@ Windows 啟用 `LINE_MCP_EXTENSIONS=1` 後列出 **33 個目前使用的工具**
 ## 安裝與升級
 
 ```powershell
-git clone --branch v3.3.5 --depth 1 https://github.com/bensonmaxai/line-desktop-mcp.git
+git clone --branch main --depth 1 https://github.com/SanHsien/line-desktop-mcp.git
 cd line-desktop-mcp
 npm ci --ignore-scripts
 ```
@@ -126,7 +126,7 @@ npm run test:python
 
 繁中、日文、泰文與印尼文對應這次官方資料涵蓋的市場，英文作為共通版本。[語言選擇與官方來源](docs/LANGUAGES.md)
 
-問題請回報至 [Issues](https://github.com/bensonmaxai/line-desktop-mcp/issues)，附版本、工具名稱與去識別化錯誤；請勿張貼真實聊天、帳號或解碼資料。採 [MIT License](LICENSE.md)，保留原作者 Geoffrey Wang 的署名。[第三方依賴與素材](docs/THIRD_PARTY.md)
+問題請回報至 [Issues](https://github.com/SanHsien/line-desktop-mcp/issues)，附版本、工具名稱與去識別化錯誤；請勿張貼真實聊天、帳號或解碼資料。採 [MIT License](LICENSE.md)，保留原作者 Geoffrey Wang 的署名。[第三方依賴與素材](docs/THIRD_PARTY.md)
 
 封面為 AI 生成的概念插圖，流程與速度圖為程式繪製，均非 LINE 官方素材或真實聊天截圖。
 

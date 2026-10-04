@@ -59,7 +59,7 @@ Ordinary text drafts are reviewed in Codex. The agent performs visual UI checks;
 ## Install and migrate
 
 ```powershell
-git clone --branch v3.3.5 --depth 1 https://github.com/bensonmaxai/line-desktop-mcp.git
+git clone --branch main --depth 1 https://github.com/SanHsien/line-desktop-mcp.git
 cd line-desktop-mcp
 npm ci --ignore-scripts
 ```

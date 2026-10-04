@@ -46,8 +46,8 @@ pwsh -NoProfile -File tools\test_product.ps1
 ```
 
 包含：
-- **Node.js 測試**：`npm test`（執行 221 項自動化單元與模擬測試，涵蓋 MCP 協定、CUA 驅動、LINE UI 操作防護、工作流計畫等）。
-- **Python 測試**：`python -B -m unittest discover -s test/python -p "test_*.py"`（執行 102 項本機資料庫唯讀快照、Scoped 解析與加密金鑰定位測試）。
+- **Node.js 測試**：`npm test`（自動化單元與模擬測試，涵蓋 MCP 協定、CUA 驅動、LINE UI 操作防護、工作流計畫等）。
+- **Python 測試**：`python -B -m unittest discover -s test/python -p "test_*.py"`（本機資料庫唯讀快照、Scoped 解析與加密金鑰定位測試）。
 
 ## 4. 上游狀態同步與檢查
 
