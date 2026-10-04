@@ -72,10 +72,10 @@ absolute Python path below.
 
 ~~~powershell
 $basePython = 'C:\Tools\Python312\python.exe'
-$venv = 'C:\Tools\line-desktop-mcp-v3.3.5\.venv'
+$venv = 'C:\Tools\line-desktop-mcp\.venv'
 & $basePython -m venv $venv
 $readerPython = Join-Path $venv 'Scripts\python.exe'
-& $readerPython -m pip install -r C:\Tools\line-desktop-mcp-v3.3.5\src\extensions\python\requirements.txt
+& $readerPython -m pip install -r C:\Tools\line-desktop-mcp\src\extensions\python\requirements.txt
 & $readerPython -c "import platform, cryptography, PIL; print(platform.architecture()[0], cryptography.__version__, PIL.__version__)"
 ~~~
 
@@ -212,11 +212,11 @@ the complete Windows extension setup:
     "line-desktop-mcp": {
       "command": "C:/Tools/node/node.exe",
       "args": [
-        "C:/Tools/line-desktop-mcp-v3.3.5/src/server.js"
+        "C:/Tools/line-desktop-mcp/src/server.js"
       ],
       "env": {
         "LINE_MCP_EXTENSIONS": "1",
-        "LINE_MCP_PYTHON": "C:/Tools/line-desktop-mcp-v3.3.5/.venv/Scripts/python.exe",
+        "LINE_MCP_PYTHON": "C:/Tools/line-desktop-mcp/.venv/Scripts/python.exe",
         "LINE_MCP_SQLITE3MC_DLL": "C:/Tools/line-desktop-mcp-runtime/sqlite3mc-2.5.1/dll/sqlite3mc_x64.dll",
         "LINE_MCP_CUA_DRIVER": "C:/Tools/line-desktop-mcp-runtime/cua-driver-rs-0.23.2/cua-driver.exe",
         "LINE_MCP_AUTOHOTKEY": "C:/Program Files/AutoHotkey/v2/AutoHotkey64.exe"
@@ -238,7 +238,7 @@ For a new Codex registration, the same values can be supplied with quoted
 PowerShell arguments:
 
 ~~~powershell
-codex mcp add line-desktop-mcp --env "LINE_MCP_EXTENSIONS=1" --env "LINE_MCP_PYTHON=C:/Tools/line-desktop-mcp-v3.3.5/.venv/Scripts/python.exe" --env "LINE_MCP_SQLITE3MC_DLL=C:/Tools/line-desktop-mcp-runtime/sqlite3mc-2.5.1/dll/sqlite3mc_x64.dll" --env "LINE_MCP_CUA_DRIVER=C:/Tools/line-desktop-mcp-runtime/cua-driver-rs-0.23.2/cua-driver.exe" --env "LINE_MCP_AUTOHOTKEY=C:/Program Files/AutoHotkey/v2/AutoHotkey64.exe" -- "C:\Tools\node\node.exe" "C:\Tools\line-desktop-mcp-v3.3.5\src\server.js"
+codex mcp add line-desktop-mcp --env "LINE_MCP_EXTENSIONS=1" --env "LINE_MCP_PYTHON=C:/Tools/line-desktop-mcp/.venv/Scripts/python.exe" --env "LINE_MCP_SQLITE3MC_DLL=C:/Tools/line-desktop-mcp-runtime/sqlite3mc-2.5.1/dll/sqlite3mc_x64.dll" --env "LINE_MCP_CUA_DRIVER=C:/Tools/line-desktop-mcp-runtime/cua-driver-rs-0.23.2/cua-driver.exe" --env "LINE_MCP_AUTOHOTKEY=C:/Program Files/AutoHotkey/v2/AutoHotkey64.exe" -- "C:\Tools\node\node.exe" "C:\Tools\line-desktop-mcp\src\server.js"
 ~~~
 
 If you only want the five default descriptors, omit `LINE_MCP_EXTENSIONS`
@@ -275,8 +275,8 @@ replace the dependency checks above.
 For a synthetic local verification after setup:
 
 ~~~powershell
-Set-Location C:\Tools\line-desktop-mcp-v3.3.5
-$env:LINE_MCP_PYTHON = 'C:\Tools\line-desktop-mcp-v3.3.5\.venv\Scripts\python.exe'
+Set-Location C:\Tools\line-desktop-mcp
+$env:LINE_MCP_PYTHON = 'C:\Tools\line-desktop-mcp\.venv\Scripts\python.exe'
 $env:LINE_MCP_SQLITE3MC_DLL = 'C:\Tools\line-desktop-mcp-runtime\sqlite3mc-2.5.1\dll\sqlite3mc_x64.dll'
 npm test
 npm run test:python
