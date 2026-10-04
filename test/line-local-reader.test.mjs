@@ -319,7 +319,9 @@ test('reader parent cleans synthetic normal and nonzero child exits without read
       let scratchDirectory;
       const output = await runReaderProcess(args, {
         pythonPath: process.execPath,
-        timeoutMs: 1_000,
+        // This fixture only checks normal child cleanup. Allow Windows hosted
+        // runners enough time to schedule a fresh Node child under matrix load.
+        timeoutMs: 5_000,
         spawnProcess: fixtureSpawn(mode, (_child, options) => { scratchDirectory = requestDirectory(options); }),
       });
       assert.equal(output.code, expectedCode);
