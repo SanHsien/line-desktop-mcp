@@ -64,7 +64,7 @@ Use Node.js 24 LTS or newer (tested: 24.19.0) and the separately configured runt
 
 **Upgrade from v1.2.0 or v2.0.0 in the same project.** MCP identity and the five default tool names remain. Windows GUI operations require the local reader and CUA; `open_line_chat` resolves the exact chat and can open and verify its titled window. macOS reads/sends are unavailable. Install into a new directory, keep the previous launcher/settings for rollback, then reconnect and refresh schemas. LINE account/chat data need no migration. Earlier v1 callers must still migrate `stage_line_reply` to the complete `source` and a one-use `sourceToken`. [Upgrade and rollback](MIGRATING.md)
 
-Use this GitHub tag or release `.tgz`. This project is not published to the npm registry and provides no MCPB bundle. The older `line-desktop-mcp@latest` package does not install it.
+Use the maintained fork's `main` checkout, which carries the v3.3.5 upstream content. This project is not published to the npm registry and provides no MCPB bundle. The older `line-desktop-mcp@latest` package does not install it.
 
 ## Evidence and limits
 
