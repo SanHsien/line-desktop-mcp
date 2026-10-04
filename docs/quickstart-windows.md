@@ -2,19 +2,18 @@
 
 [Project home](../README.md) · [Features](features.md) · [Upgrade and rollback](MIGRATING.md)
 
-This guide installs **LINE Agent MCP v3.3.5** from the maintained
-[bensonmaxai/line-desktop-mcp](https://github.com/bensonmaxai/line-desktop-mcp)
-repository. The display name is LINE Agent MCP; the package and MCP server name
-remain `line-desktop-mcp`.
+This guide installs the current **LINE Agent MCP** source from the maintained
+[SanHsien/line-desktop-mcp](https://github.com/SanHsien/line-desktop-mcp) fork.
+The display name is LINE Agent MCP; the package and MCP server name remain
+`line-desktop-mcp`.
 
 Examples use `C:\Tools`. Use an equivalent local, user-owned directory if that
 path does not suit your machine. Keep the checkout, virtual environment,
 downloaded archives, and extracted binaries outside OneDrive.
 
-Obtain this release from its GitHub tag and the attached
-`line-desktop-mcp-3.3.5.tgz` with `SHA256SUMS.txt`. It is **not** published to the npm registry and
-does not provide an MCPB bundle. Do not install `line-desktop-mcp@latest` from
-npm: it is not this release.
+The fork is installed from `main`. It is **not** published to the npm registry
+and does not provide an MCPB bundle. Do not install `line-desktop-mcp@latest`
+from npm: it is not this fork.
 
 ## Requirements
 
@@ -34,22 +33,21 @@ command-line options are rejected before server startup. It does not
 automatically load a `.env` file from the current directory: put every setting
 in your MCP client's server environment.
 
-## 1. Check out the exact release and install Node dependencies
+## 1. Check out the fork and install Node dependencies
 
 Choose an empty local directory. Do not clone over an existing installation;
 the [upgrade guide](MIGRATING.md) uses a sibling checkout so rollback stays
 available.
 
 ~~~powershell
-git clone --branch v3.3.5 --depth 1 https://github.com/bensonmaxai/line-desktop-mcp.git C:\Tools\line-desktop-mcp-v3.3.5
-Set-Location C:\Tools\line-desktop-mcp-v3.3.5
-git describe --exact-match --tags
+git clone --branch main --depth 1 https://github.com/SanHsien/line-desktop-mcp.git C:\Tools\line-desktop-mcp
+Set-Location C:\Tools\line-desktop-mcp
 npm ci --ignore-scripts
 ~~~
 
-`git describe` should print `v3.3.5`. The lockfile is included, so use
-`npm ci --ignore-scripts`, not an unpinned registry install. `--ignore-scripts`
-keeps package lifecycle scripts from running during installation.
+The lockfile is included, so use `npm ci --ignore-scripts`, not an unpinned
+registry install. `--ignore-scripts` keeps package lifecycle scripts from
+running during installation.
 
 Confirm that the Node executable selected by your MCP client is version 24 or
 newer:

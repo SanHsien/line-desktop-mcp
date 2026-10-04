@@ -55,7 +55,7 @@ Ordinary text drafts are reviewed in Codex. The agent performs visual UI checks;
 ## Install and migrate
 
 ```powershell
-git clone --branch v3.3.5 --depth 1 https://github.com/bensonmaxai/line-desktop-mcp.git
+git clone --branch main --depth 1 https://github.com/SanHsien/line-desktop-mcp.git
 cd line-desktop-mcp
 npm ci --ignore-scripts
 ```
@@ -81,7 +81,7 @@ Historical v2.0.0 measurements, not a new v3.2.0 benchmark: text-history cold-re
 
 Run `npm test` and `npm run test:python` with configured Python for synthetic verification. [Detailed tool contract and verification](windows-extensions.md)
 
-[Language selection and official sources](LANGUAGES.md) · [Report an issue](https://github.com/bensonmaxai/line-desktop-mcp/issues) · [MIT license](../LICENSE.md) · [Third-party notes](THIRD_PARTY.md)
+[Language selection and official sources](LANGUAGES.md) · [Report an issue](https://github.com/SanHsien/line-desktop-mcp/issues) · [MIT license](../LICENSE.md) · [Third-party notes](THIRD_PARTY.md)
 
 The cover is an AI-generated concept illustration. Workflow/performance graphics are code-generated, not real chat screenshots or official LINE assets.
 

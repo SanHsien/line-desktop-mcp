@@ -57,7 +57,7 @@
 ให้รับ repository เดิมที่ tag v3.3.5 ลงในไดเรกทอรีแยก:
 
 ```powershell
-git clone --branch v3.3.5 --depth 1 https://github.com/bensonmaxai/line-desktop-mcp.git
+git clone --branch main --depth 1 https://github.com/SanHsien/line-desktop-mcp.git
 cd line-desktop-mcp
 npm ci --ignore-scripts
 ```
@@ -94,6 +94,6 @@ v2.0.0 เคยผ่านการตรวจสอบ restart/read ขอ�
 
 การตรวจสอบสังเคราะห์สุดท้ายของ v3.0.0: Node tests **ผ่าน 221 รายการ**; Python tests **ผ่าน 101 จาก 102 รายการ** และ skip 1 รายการเพราะ Windows filesystem symlink ไม่มีการรันแชตจริงหรือการส่งจริง ให้รัน `npm test` และ `npm run test:python` พร้อม Python ที่ตั้งค่าแล้ว [ข้อกำหนดและการตรวจสอบโดยละเอียด](windows-extensions.md)
 
-[การเลือกภาษาและแหล่งข้อมูลทางการ](LANGUAGES.md) · [รายงานปัญหา](https://github.com/bensonmaxai/line-desktop-mcp/issues) · [MIT license](../LICENSE.md) · [หมายเหตุเกี่ยวกับ third party](THIRD_PARTY.md)
+[การเลือกภาษาและแหล่งข้อมูลทางการ](LANGUAGES.md) · [รายงานปัญหา](https://github.com/SanHsien/line-desktop-mcp/issues) · [MIT license](../LICENSE.md) · [หมายเหตุเกี่ยวกับ third party](THIRD_PARTY.md)
 
 ภาพปกเป็นภาพแนวคิดที่สร้างโดย AI กราฟิกเวิร์กโฟลว์/ประสิทธิภาพสร้างจากโค้ด ไม่ใช่ภาพหน้าจอแชตจริงหรือทรัพย์สิน LINE อย่างเป็นทางการ

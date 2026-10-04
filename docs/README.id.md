@@ -57,7 +57,7 @@ Draf teks biasa ditinjau di Codex. Agen melakukan pemeriksaan UI secara visual, 
 Ambil repository yang sama pada tag v3.3.5 ke direktori terpisah:
 
 ```powershell
-git clone --branch v3.3.5 --depth 1 https://github.com/bensonmaxai/line-desktop-mcp.git
+git clone --branch main --depth 1 https://github.com/SanHsien/line-desktop-mcp.git
 cd line-desktop-mcp
 npm ci --ignore-scripts
 ```
@@ -94,6 +94,6 @@ Dua pemeriksaan restart/baca LINE nyata berhasil pada v2.0.0, dan transport gamb
 
 Verifikasi sintetis akhir v3.0.0: Node tests **221 lulus**; Python tests **101 dari 102 lulus** dan 1 dilewati karena symlink filesystem Windows. Tidak ada chat atau pengiriman nyata yang dijalankan. Jalankan `npm test` dan `npm run test:python` dengan Python yang telah dikonfigurasi. [Kontrak tools dan verifikasi terperinci](windows-extensions.md)
 
-[Pemilihan bahasa dan sumber resmi](LANGUAGES.md) · [Laporkan issue](https://github.com/bensonmaxai/line-desktop-mcp/issues) · [Lisensi MIT](../LICENSE.md) · [Catatan pihak ketiga](THIRD_PARTY.md)
+[Pemilihan bahasa dan sumber resmi](LANGUAGES.md) · [Laporkan issue](https://github.com/SanHsien/line-desktop-mcp/issues) · [Lisensi MIT](../LICENSE.md) · [Catatan pihak ketiga](THIRD_PARTY.md)
 
 Sampul adalah ilustrasi konsep yang dihasilkan AI. Grafik alur kerja/kinerja dibuat dengan kode, bukan tangkapan layar chat nyata atau aset LINE resmi.

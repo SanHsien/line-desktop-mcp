@@ -57,7 +57,7 @@ Windows で `LINE_MCP_EXTENSIONS=1` を設定すると **33 個のアクティ�
 既存のリポジトリを v3.3.5 タグで別の作業ディレクトリに取得できます。
 
 ```powershell
-git clone --branch v3.3.5 --depth 1 https://github.com/bensonmaxai/line-desktop-mcp.git
+git clone --branch main --depth 1 https://github.com/SanHsien/line-desktop-mcp.git
 cd line-desktop-mcp
 npm ci --ignore-scripts
 ```
@@ -94,6 +94,6 @@ v2.0.0 では実際の LINE の再起動と読み取りを 2 回確認し、実�
 
 v3.0.0 の最終合成検証では Node テスト **221 件が成功**、Python テストは **102 件中 101 件が成功、1 件は Windows ファイルシステムの symlink のため skip** でした。実際のチャットや送信は実行していません。構成済みの Python で `npm test` と `npm run test:python` を実行してください。[詳細なツール仕様と検証](windows-extensions.md)
 
-[言語の選択と公式ソース](LANGUAGES.md) · [Issue を報告](https://github.com/bensonmaxai/line-desktop-mcp/issues) · [MIT ライセンス](../LICENSE.md) · [サードパーティーに関する注記](THIRD_PARTY.md)
+[言語の選択と公式ソース](LANGUAGES.md) · [Issue を報告](https://github.com/SanHsien/line-desktop-mcp/issues) · [MIT ライセンス](../LICENSE.md) · [サードパーティーに関する注記](THIRD_PARTY.md)
 
 カバーは AI が生成したコンセプトイラストです。ワークフロー／性能グラフィックはコードで生成しており、実際のチャット画面や公式 LINE 素材ではありません。
