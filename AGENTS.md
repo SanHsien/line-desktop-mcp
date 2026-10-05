@@ -26,8 +26,8 @@
 - 自動化與驅動模組：`src/automation/`（Windows UI Automation / CUA / AutoHotkey 驅動）。
 - 擴充功能與本機讀取：`src/extensions/`（Node.js 轉接與 `src/extensions/python/` 唯讀解碼引擎）。
 - 測試套件：
-  - Node.js 測試：`test/*.test.mjs`（`npm test` 執行 221 項測試）。
-  - Python 測試：`test/python/test_*.py`（`python -m unittest discover` 執行 102 項測試）。
+  - Node.js 測試：`test/*.test.mjs`（`npm test`）。
+  - Python 測試：`test/python/test_*.py`（`python -m unittest discover`）。
 - `tools/`：fork 維護工具（Windows gate、上游檢查、相對連結檢查、依賴新鮮度）。
 - `tools/tests/`：維護契約測試。獨立於產品測試目錄。
 

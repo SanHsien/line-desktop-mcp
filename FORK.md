@@ -24,7 +24,7 @@
 | `NOTICE.md` / `FORK.md` / `LICENSE` | 來源、授權與同步說明 |
 | `tools/dev_check.ps1` | Windows 本機一鍵 gate（維護工具，不安裝重型依賴） |
 | `tools/bootstrap_dev.ps1` | Windows 本機一鍵初始化與驗收 |
-| `tools/test_product.ps1` | Windows 原生產品測試執行腳本（驗證 Node 221 項與 Python 102 項測試） |
+| `tools/test_product.ps1` | Windows 原生產品測試執行腳本 |
 | `requirements.txt` / `requirements-dev.txt` | 產品與維護 Python 依賴清單 |
 | `.github/workflows/ci.yml` | 純 Windows 原生 CI (windows-latest Node 24 + Python 3.10–3.14 矩陣)：Node 與 Python 門禁驗收 |
 | `.github/workflows/upstream-check.yml` | 每週對 `upstream/main` 做未審查 commit、PR、issue 水位檢查 |

@@ -11,7 +11,7 @@
 
 這個 fork 適合作為 Windows 本機、給 Agent 維護的 LINE Desktop MCP 線。產品行為跟隨 `bensonmaxai/line-desktop-mcp` `b66fad4`，再加上本線維護骨架：繁體中文維護文件、Windows 原生 1-click gate、純 Windows 原生維護 CI、每週上游水位追蹤（commit、PR、issue）以及每月依賴新鮮度檢查。
 
-全庫 221 項 Node.js 測試全數通過（`npm test`），103 項 Python 測試全數通過／預期略過（`python -m unittest`）。
+全庫 Node.js 與 Python 測試全數通過／預期略過（`npm test`、`python -m unittest`）。
 
 ## 本輪實證
 
@@ -40,11 +40,11 @@ gh repo set-default --view
 | R-03 | P2 | 建立 `FORK.md`、`NOTICE.md`、`LICENSE`、`SECURITY.md`、`AGENTS.md`、`CLAUDE.md`、`GEMINI.md`，寫明對外邊界與安全性 |
 | R-04 | P3 | `README.md`（繁體中文）與 `README.en.md`（英文鏡像）雙向互指，並標明 upstream 與 MIT 條款 |
 | R-05 | P2 | 建立 `tools/dev_check.ps1` 與 `tools/bootstrap_dev.ps1`，規範 Windows 11 原生 PowerShell 驗收門禁 |
-| R-06 | P2 | 建立 `tools/test_product.ps1` 驗證 Node.js (221 測試) 與 Python (103 測試) 產品測試全綠 |
+| R-06 | P2 | 建立 `tools/test_product.ps1` 驗證 Node.js 與 Python 產品測試全綠 |
 | R-07 | P2 | 建立純 Windows 原生 CI（`ci.yml`、`codeql.yml`、`upstream-check.yml`、`dependency-freshness.yml`） |
 | R-08 | P2 | 建立上游追蹤水位防重複巡檢機制，鎖定 PR `#0`、Issue `#1` |
 | R-09 | P2 | 修復 Python 3.14 下深度巢狀 JSON 堆疊行為與 Fail-Closed 防禦：在 `line_scoped_core.py` 引入非遞迴的迭代式深度檢查 `_within_depth()`，杜絕因 Python 3.14 C-stack 變動導致深度巢狀惡意 JSON 被誤當作有效物件之安全漏洞與測試失敗 |
-| R-10 | P2 | 解決上游 Issue #1：在 `line_encrypted_snapshot.py` 引進 `LINE_MCP_MAX_SOURCE_BYTES` 環境變數自訂讀取上限，預設保留 256MB 安全防線，為超大本機對話紀錄庫提供擴充能力，附自動化測試 |
+| R-10 | P2 | 解決上游 Issue #1：在 `line_encrypted_snapshot.py` 引進 `LINE_MCP_MAX_SOURCE_BYTES` 環境變數自訂讀取上限，預設保留 256MB 安全防線，為超大本機對話紀錄庫提供擴充能力，附自動化測試。**2026-10-03 由上游 v3.0.1 串流快照取代**（同一環境變數，預設 2 GiB、無效值拒絕），fork 測試改寫為新介面，見 `docs/DECISIONS.md` 同日條目 |
 | R-11 | P3 | 強化 Win32 原生探針安全性：在 `line-schema-probe.py` 中對 `ReadProcessMemory` API 回傳之布林 `ok` 增加顯式檢查，確保僅在 Win32 呼叫成功時存取記憶體緩衝區；清理 `line_scoped_core.py` 冗餘 import |
 
 ## 接受、不改契約

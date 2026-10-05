@@ -75,6 +75,102 @@ class ScopeTests(unittest.TestCase):
             with self.assertRaises(core.ReaderError):
                 core.validate_scope({**self.args, **changed})
 
+    def test_identity_only_returns_checked_account_for_group_and_direct(self):
+        self.db.execute('INSERT INTO _profile VALUES (?,?)', ('own-mid', 'Own'))
+        self.db.execute('INSERT INTO _chat VALUES (?,?)', ('u1', 0))
+        expected_sender = core.reference('sender', 'own-mid')
+        for name, kind, chat_id in [('Synthetic Group', 'group', 'c1'),
+                                    ('Synthetic Direct 😀', 'direct', 'u1')]:
+            with self.subTest(chatType=kind):
+                args = {**self.args, 'chatName': name, 'chatType': kind,
+                        'messageLimit': 30, 'identityOnly': True,
+                        'requireUniqueName': True,
+                        'expectedChatRef': core.reference('chat', chat_id)}
+                legacy = core.read_scoped(self.db, args, {})
+                self.assertNotIn('ownSenderRef', legacy)
+                result = core.read_scoped(self.db, {**args, 'expectedOwnSenderRef': expected_sender}, {})
+                self.assertEqual(result['ownSenderRef'], expected_sender)
+                self.assertEqual(result['messages'], [])
+                with self.assertRaises(core.ReaderError) as caught:
+                    core.read_scoped(self.db, {**args,
+                        'expectedOwnSenderRef': core.reference('sender', 'other')}, {})
+                self.assertEqual(caught.exception.code, 'CHAT_ACCOUNT_CHANGED')
+
+    def test_selected_chat_and_account_refuse_before_message_rows(self):
+        self.db.execute('INSERT INTO _profile VALUES (?,?)', ('own-mid', 'Own'))
+        self.add('private-message', self.start)
+        self.db.set_authorizer(lambda action, table, column, database, trigger:
+                               sqlite3.SQLITE_DENY if action == sqlite3.SQLITE_READ and table == '_message'
+                               else sqlite3.SQLITE_OK)
+        for extra, expected in [
+            ({'expectedChatRef': core.reference('chat', 'other')}, 'CHAT_IDENTITY_CHANGED'),
+            ({'expectedOwnSenderRef': core.reference('sender', 'other')}, 'CHAT_ACCOUNT_CHANGED'),
+        ]:
+            with self.assertRaises(core.ReaderError) as caught:
+                core.read_scoped(self.db, {**self.args, **extra}, {})
+            self.assertEqual(caught.exception.code, expected)
+        # set_authorizer(None) only clears the callback from Python 3.11 on;
+        # an allow-all callback behaves the same on the supported 3.10.
+        self.db.set_authorizer(lambda *_: sqlite3.SQLITE_OK)
+        self.db.execute('DELETE FROM _profile')
+        with self.assertRaises(core.ReaderError) as caught:
+            core.read_scoped(self.db, {**self.args,
+                'expectedOwnSenderRef': core.reference('sender', 'own-mid')}, {})
+        self.assertEqual(caught.exception.code, 'CHAT_ACCOUNT_CHANGED')
+
+    def bound_args(self):
+        self.db.execute('INSERT INTO _chat VALUES (?,?)', ('u1', 0))
+        self.db.execute('INSERT INTO _profile VALUES (?,?)', ('own-mid', 'Own'))
+        return {**self.args, 'chatName': 'Synthetic Direct 😀', 'chatType': 'direct',
+                'dateTo': '2026-09-07', 'messageLimit': 30, 'mediaMode': 'metadata',
+                'boundDirect': True, 'expectedChatRef': core.reference('chat', 'u1'),
+                'expectedOwnSenderRef': core.reference('sender', 'own-mid')}
+
+    def test_bound_direct_unopened_collision_is_not_a_second_existing_chat(self):
+        args = self.bound_args()
+        self.add('direct', self.start, chat='u1')
+        self.assertTrue(core.read_scoped(self.db, args, {})['chatIdentity']['globalNameUnique'])
+        self.db.execute('INSERT INTO _contact VALUES (?,?,?)', ('u2', None, args['chatName']))
+        result = core.read_scoped(self.db, args, {})
+        self.assertFalse(result['chatIdentity']['globalNameUnique'])
+        self.assertTrue(result['chatIdentity']['knownNameUnique'])
+        self.assertEqual(result['count'], 1)
+        old_args = {key: value for key, value in args.items() if key != 'boundDirect'}
+        with self.assertRaises(core.ReaderError) as caught:
+            core.read_scoped(self.db, {**old_args, 'requireUniqueName': True}, {})
+        self.assertEqual(caught.exception.code, 'CHAT_AMBIGUOUS')
+        self.db.execute('INSERT INTO _chat VALUES (?,?)', ('u2', 0))
+        with self.assertRaises(core.ReaderError) as caught:
+            core.read_scoped(self.db, args, {})
+        self.assertEqual(caught.exception.code, 'CHAT_AMBIGUOUS')
+
+    def test_bound_identity_and_mismatches_never_select_message_rows(self):
+        args = self.bound_args()
+        self.db.set_authorizer(lambda action, table, column, database, trigger:
+                               sqlite3.SQLITE_DENY if action == sqlite3.SQLITE_READ and table == '_message'
+                               else sqlite3.SQLITE_OK)
+        result = core.read_scoped(self.db, {**args, 'identityOnly': True}, {})
+        self.assertEqual(result['count'], 0)
+        self.assertEqual(result['ownSenderRef'], args['expectedOwnSenderRef'])
+        for field, code in [('expectedChatRef', 'CHAT_IDENTITY_CHANGED'),
+                            ('expectedOwnSenderRef', 'CHAT_ACCOUNT_CHANGED')]:
+            with self.assertRaises(core.ReaderError) as caught:
+                core.read_scoped(self.db, {**args, field: ('chat:' if field == 'expectedChatRef' else 'sender:') + '0'*24}, {})
+            self.assertEqual(caught.exception.code, code)
+
+    def test_bound_mode_rejects_unbounded_scope_and_cross_kind_gui_name_collision(self):
+        args = self.bound_args()
+        for change in [{'boundDirect': False}, {'chatType': 'group'}, {'messageLimit': 31},
+                       {'dateTo': '2026-09-08'}, {'expectedChatRef': None},
+                       {'expectedOwnSenderRef': None}, {'requireUniqueName': True},
+                       {'query': 'x'}, {'mediaMode': 'preview'}, {'guiCandidateOnly': True}]:
+            with self.subTest(change=change), self.assertRaises(core.ReaderError):
+                core.validate_scope({**args, **change})
+        self.db.execute('INSERT INTO _groupChat VALUES (?,?)', ('collision', args['chatName']))
+        with self.assertRaises(core.ReaderError) as caught:
+            core.read_scoped(self.db, args, {})
+        self.assertEqual(caught.exception.code, 'CHAT_AMBIGUOUS')
+
     def test_gui_identity_only_requires_the_private_identity_shape(self):
         for changed in [
             {'guiIdentityOnly': True},
@@ -147,14 +243,14 @@ class ScopeTests(unittest.TestCase):
         self.db.execute('INSERT INTO _groupChat VALUES (?,?)', (None, 'Malformed ID'))
         with self.assertRaises(core.ReaderError) as caught:
             core.read_scoped(self.db, gui, {})
-        self.assertEqual(caught.exception.code, 'GUI_IDENTITY_UNAVAILABLE')
+        self.assertEqual(caught.exception.code, 'GUI_IDENTITY_ID_INVALID')
         self.db.execute('DELETE FROM _groupChat WHERE _chatMid IS NULL')
 
         self.db.execute('INSERT INTO _contact VALUES (?,?,?)', ('u-empty', None, '\u00a0\ufeff'))
         self.db.execute('INSERT INTO _chat VALUES (?,?)', ('u-empty', 0))
-        with self.assertRaises(core.ReaderError) as caught:
-            core.read_scoped(self.db, gui, {})
-        self.assertEqual(caught.exception.code, 'GUI_IDENTITY_UNAVAILABLE')
+        resolved = core.read_scoped(self.db, gui, {})
+        self.assertEqual(resolved['chatRef'], core.reference('chat', 'c1'))
+        self.assertEqual(resolved['chatIdentity']['guiDisplayNameUnique'], True)
         self.db.execute('DELETE FROM _contact WHERE _mid=?', ('u-empty',))
         self.db.execute('DELETE FROM _chat WHERE _id=?', ('u-empty',))
 
@@ -166,12 +262,12 @@ class ScopeTests(unittest.TestCase):
                 return Rows()
         with self.assertRaises(core.ReaderError) as caught:
             core.read_scoped(MalformedConnection(), gui, {})
-        self.assertEqual(caught.exception.code, 'GUI_IDENTITY_UNAVAILABLE')
+        self.assertEqual(caught.exception.code, 'GUI_IDENTITY_ROW_INVALID')
 
         self.db.execute('DROP TABLE _contact')
         with self.assertRaises(core.ReaderError) as caught:
             core.read_scoped(self.db, gui, {})
-        self.assertEqual(caught.exception.code, 'GUI_IDENTITY_UNAVAILABLE')
+        self.assertEqual(caught.exception.code, 'GUI_IDENTITY_QUERY_FAILED')
 
     def test_gui_identity_requires_complete_inventory_and_enforces_total_cap(self):
         gui = {**self.args, 'identityOnly': True, 'guiIdentityOnly': True}
@@ -188,13 +284,13 @@ class ScopeTests(unittest.TestCase):
                 raise core.ReaderError('RESULT_TOO_LARGE')
         with self.assertRaises(core.ReaderError) as caught:
             core.read_scoped(IncompleteConnection(), gui, {})
-        self.assertEqual(caught.exception.code, 'GUI_IDENTITY_UNAVAILABLE')
+        self.assertEqual(caught.exception.code, 'GUI_IDENTITY_QUERY_RESULT_TOO_LARGE')
 
         self.db.executemany('INSERT INTO _groupChat VALUES (?,?)',
                             ((f'over-{n:05}', f'Over cap {n}') for n in range(10001)))
         with self.assertRaises(core.ReaderError) as caught:
             core.read_scoped(self.db, gui, {})
-        self.assertEqual(caught.exception.code, 'GUI_IDENTITY_UNAVAILABLE')
+        self.assertEqual(caught.exception.code, 'GUI_IDENTITY_INVENTORY_LIMIT')
 
     def test_gui_identity_pages_complete_inventory_and_reads_no_messages(self):
         self.db.execute('DELETE FROM _groupChat WHERE _chatMid=?', ('c1',))

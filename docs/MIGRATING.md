@@ -1,23 +1,128 @@
-# Upgrade to v3.0.0
+# Upgrade through the maintained fork
 
 [Project home](../README.md) · [Windows installation](quickstart-windows.md) · [Features](features.md)
 
-LINE Agent MCP v3.0.0 continues the same
-[bensonmaxai/line-desktop-mcp](https://github.com/bensonmaxai/line-desktop-mcp)
-repository, package name, and MCP server name: **line-desktop-mcp**. It is
-published from the existing GitHub repository under tag v3.0.0, not to the npm
-registry and not as an MCPB bundle. LINE account and chat data do not migrate.
-The reader still uses bounded, read-only local copies; it is not an account
-backup or a migration tool.
+The maintained [SanHsien/line-desktop-mcp](https://github.com/SanHsien/line-desktop-mcp) fork `main` carries the upstream v3.3.5 content and keeps the `line-desktop-mcp` package and MCP server identity. It is not published to the npm registry or as an MCPB bundle. LINE account and chat data do not migrate.
+
+## Upgrading through the maintained fork
+
+Install the maintained fork `main` in a new directory with `npm ci --ignore-scripts`; follow the [current Windows installation guide](quickstart-windows.md). Keep the previous installation and send journals for rollback, preserve Python, SQLite3MC, CUA and AutoHotkey settings, switch the server path, then reconnect. The fork carries v3.3.5 upstream content and has 33 active Windows tools with extensions enabled.
+
+Mixed chat/message search now crops each category from its own UIA row: the prior 30px title crop had insufficient bottom margin for the complete name, while edge-clipped category OCR could miss header characters or the count. It reads a 35px title area and may use a 16px white OCR margin. Coordinates map back to the original screenshot and out-of-bounds evidence refuses. Exact name, selected tab, query, chat count, detached title, local account/chat binding and send guards remain required. Sixty-one related tests passed with zero failures. Five real main-window cold searches across three authorized direct chats reached READY with exact detached titles, matching local identities and empty composers; none entered or sent a message. [Validation and limits](releases/v3.3.5.en.md).
+
+## Upgrading to v3.3.4
+
+Install tag `v3.3.4` or its archive in a new directory with `npm ci --ignore-scripts`. Keep the previous installation and send journals for rollback, preserve Python, SQLite3MC, CUA and AutoHotkey settings, switch the server path, then reconnect. Expect version `3.3.4` and 33 active Windows tools with extensions enabled.
+
+The single-direct search path now reads a faint chat category/count from a separate crop of the same observed screenshot when whole-results OCR omits it. Existing single-direct navigation checks run first. The selected Friends tab, exact query, one result/count, exact detached title and local account/chat binding remain required; no new green-title identity verifier is added. Ordinary Friends and mixed searches keep their paths. Focused tests and one live preparation passed without message input or send; no full Node/Python rerun is claimed. [Validation and limits](releases/v3.3.4.en.md).
+
+## Upgrading to v3.3.3
+
+Install tag `v3.3.3` or its archive in a new directory with `npm ci --ignore-scripts`. Keep the previous installation and send journals for rollback, preserve the Python, SQLite3MC, CUA and AutoHotkey settings, switch the server path, then reconnect. Expect package version `3.3.3` and 33 active Windows tools with extensions enabled.
+
+The recent-chat picker now treats only `_chat._midType=0` as a direct identity, allowing a group to appear even when it also has a generic `_chat` index row. True conflicting names or chat types still refuse. Send, window and search guards, tool schemas, dependencies, CLI behavior and journals are unchanged. This patch was checked with focused tests and a target-only metadata read; no full Node or Python suite is claimed. [Validation and limits](releases/v3.3.3.en.md).
+
+## Upgrading to v3.3.2
+
+Install tag `v3.3.2` or its release archive in a new directory and run `npm ci --ignore-scripts`. Dependencies, tool schemas, CLI behavior and send journals are unchanged from v3.3.1. Preserve Python, SQLite3MC, CUA and AutoHotkey settings, switch the MCP server path, then reconnect. Existing processes do not change version automatically. Expect version `3.3.2` and 33 active Windows tools when extensions are enabled.
+
+Keep the old installation and send journals for rollback. The patch tightens category-tab OCR, guards direct one-result navigation, requires full main-window UIA structure amid auxiliary windows, and rechecks exact HWND/PID/title after minimized restoration. A navigation candidate is not identity proof; the complete detached title and fresh chat/account checks remain necessary before input and before any send. The later live mixed Friends search with one chat and four separate message-history hits reached the exact requested detached title, refreshed local identity and an empty composer without message input or sending. Chat and message sections are distinguished; green highlighting alone is not identity proof. An initial category OCR observation refused transiently, then passed after a fresh valid navigation observation. Other ambiguous layouts still refuse. [Validation and limits](releases/v3.3.2.en.md).
+
+## Upgrading to v3.3.1
+
+Install tag `v3.3.1` or its release archive in a new directory and use `npm ci --ignore-scripts`. Dependencies and tool schemas are unchanged from v3.3.0. Preserve Python, SQLite3MC, CUA and AutoHotkey settings, switch the server path, then reconnect; existing server processes do not change version automatically. Expect version `3.3.1` and 33 active Windows tools.
+
+Keep the old directory and send journals for rollback. The group-search fix requires the complete detached title and fresh recipient/account check before input. `prepare_line_send_target` remains direct-chat only; this patch adds no group preparation tool. Runtime code matches `3.3.1-local.1`. [Validation and limits](releases/v3.3.1.en.md).
+
+## Upgrading to v3.3.0
+
+Install tag `v3.3.0` or the release archive in a new directory, keep the old
+installation for rollback, and use `npm ci --ignore-scripts`. Keep the existing
+Python, SQLite3MC and CUA configuration. Point the MCP client at the new server,
+reconnect and refresh schemas; expect version `3.3.0` and 33 active tools with
+`LINE_MCP_EXTENSIONS=1`. The five defaults and read-only CLI are unchanged.
+
+Clients may use `list_line_recent_chats` to select an opaque identity and pass
+both `expectedChatRef` and `expectedOwnSenderRef` to reads/sends. A successful
+list or identity check does not authorize a send. Only
+`IDENTITY_BOUND_REQUIRES_UI` needs the special already-open direct-window
+preparation; `IDENTITY_UNIQUE` keeps automatic opening. A `READY` result is a
+current observation, not a reusable permission token. Existing callers without
+the refs keep the stricter global-name uniqueness behavior.
+
+Forwarding adds a separate reviewed source/recipient operation with persistent
+dispatch intent. Never clear its journal or create a fresh operation to retry
+an uncertain dispatch. Cancel only before dispatch; recall remains a separate
+LINE UI action. Keep journals when rolling back so a previous uncertain send
+is not accidentally replayed. No LINE account or chat-data migration is needed.
+
+The public release uses the same runtime code as the live-tested
+`3.3.0-local.4` candidate, with release metadata and documentation finalized.
+See [validation and limitations](releases/v3.3.0.en.md).
+
+## Upgrading to v3.2.0
+
+Install the `v3.2.0` source or release archive in a sibling directory,
+run `npm ci --ignore-scripts`, then reconnect the MCP client to
+refresh its descriptors. Keep the previous directory, launcher, and
+configuration for rollback. Do not copy LINE account files, keys, or cache.
+The optional read-only `line-cli` remains available; check
+`node src/cli.js --version` and `node src/cli.js capabilities --json`.
+
+With `LINE_MCP_EXTENSIONS=1` on Windows, expect 26 listed active tools. Five
+legacy aliases remain callable for existing clients but are hidden from the
+list; 31 descriptors are implemented. The default five tool names remain.
+Update clients that depend on an exact extension list or cached schemas.
+
+Plain-text `send_message_auto` now checks for a new own local record in the
+exact chat within one 30-second deadline. `RECORDED_LOCAL` establishes only
+local record presence, not delivery or read state. Retain the same
+`idempotencyKey` when checking an uncertain attempt; it will not dispatch
+again. Without a key, identical chat and text reuse the recorded result.
+Use a new key only when a second send is intentional. Never automatically
+retry an uncertain send. Contact-name collisions now refuse even if one
+candidate lacks a chat row, and identity is refreshed immediately before
+Return.
+
+For `get_line_chat_messages`, search, export, and verify, an explicit
+`date` or complete `dateFrom`/`dateTo` range (at most 31 days) now uses
+the scoped local DB/WAL reader. Undated requests continue to use loaded UI
+history. `compareWithUi: true` is a separate GUI comparison; it may mark
+the chat read and does not turn local records into delivery evidence.
+Detached chat windows and file pickers require exact HWND/PID/title binding.
+`send_file_manual` stages a path in the Ctrl+O picker only; clicking Open
+after approval sends the file.
+
+The v3.0.0 CUA, Python, pinned SQLite3MC, exact-chat and macOS refusal
+requirements still apply to GUI operations. If rolling back, stop the active
+bridge, wait for its operation lock to release, retarget the previous launcher,
+and reconnect. Keep any uncertain send journal until its outcome is resolved;
+rolling back does not justify replaying it.
+
+## Upgrading to v3.1.0
+
+v3.1.0 adds an optional read-only CLI without changing MCP tool names or
+schemas. Install the `v3.1.0` source or release archive in a sibling directory,
+run `npm ci --ignore-scripts`, then check `node src/cli.js --version` and
+`node src/cli.js capabilities --json`. Keep the previous directory and launcher
+for rollback. Existing Python and SQLite3MC configuration still applies.
+No account or chat-data migration is required. CLI local reads do not need CUA;
+MCP GUI operations retain all v3.0.0 requirements. See [CLI usage](CLI.md).
+
+## Upgrading to v3.0.1
+
+v3.0.1 fixes the 256 MiB whole-database blocker reported in [issue #1](https://github.com/bensonmaxai/line-desktop-mcp/issues/1). It streams encrypted DB/WAL snapshots with a default 2 GiB DB limit. No account or chat-data migration or deletion is needed. Install the new package in a sibling directory, preserve the previous launcher for rollback, then reconnect the MCP client. [Limits and timeout settings](quickstart-windows.md#large-local-databases) · [Release notes](releases/README.md).
 
 ## Upgrading to v3.0.0
 
-Use this guide from either v1.2.0 or v2.0.0. Install v3.0.0 in a sibling local
+The following v3 security migration requirements also apply to v3.0.1. Commands install the current patch release.
+
+Use this guide from v1.2.0, v2.0.0 or v3.0.0. Install v3.0.1 in a sibling local
 checkout, retarget the existing MCP registration, and keep the prior checkout
 available for rollback. Do not overwrite a working v1/v2 checkout, delete it,
 or force it to the v3 tag with git reset.
 
-v3.0.0 is a breaking security release for named-chat GUI workflows. Every
+v3.0.1 retains the breaking security changes introduced in v3.0.0 for named-chat GUI workflows. Every
 Windows named-chat GUI path, including the five default descriptors, now needs
 CUA plus the existing local-reader Python/DLL prerequisites. The five descriptor
 names, order, and input schemas remain, but their platform availability
@@ -36,7 +141,7 @@ the older GUI behavior.
    (%USERPROFILE%\.line-desktop-mcp\operation.lock on Windows). It serializes
    bridge operations across versions; use one active bridge for normal work.
 4. Check the Node runtime selected by the MCP client. Node 24 LTS or newer is
-   required by v3.0.0.
+   required by v3.0.1.
 
 For a file-based configuration, make a normal copy rather than rewriting the
 existing entry:
@@ -48,7 +153,7 @@ Copy-Item -LiteralPath 'C:\path\to\your-mcp-config.json' -Destination 'C:\path\t
 Use your client's documented export method if it does not store MCP
 configuration in a JSON file.
 
-## Obtain the exact v3.0.0 source
+## Obtain the exact v3.0.1 source
 
 Choose one of the following paths outside OneDrive. Use the published GitHub
 tag or attached release package; do not substitute npm install line-desktop-mcp@latest.
@@ -56,13 +161,13 @@ tag or attached release package; do not substitute npm install line-desktop-mcp@
 ### Git checkout (recommended)
 
 ~~~powershell
-git clone --branch v3.0.0 --depth 1 https://github.com/bensonmaxai/line-desktop-mcp.git C:\Tools\line-desktop-mcp-v3
-Set-Location C:\Tools\line-desktop-mcp-v3
+git clone --branch v3.0.1 --depth 1 https://github.com/bensonmaxai/line-desktop-mcp.git C:\Tools\line-desktop-mcp-v3.0.1
+Set-Location C:\Tools\line-desktop-mcp-v3.0.1
 git describe --exact-match --tags
 npm ci --ignore-scripts
 ~~~
 
-git describe must print v3.0.0. npm ci --ignore-scripts uses the included
+git describe must print v3.0.1. npm ci --ignore-scripts uses the included
 lockfile and prevents package lifecycle scripts from running during install.
 
 ### GitHub source archive
@@ -70,21 +175,21 @@ lockfile and prevents package lifecycle scripts from running during install.
 Use the tag's source archive only when a Git checkout is unavailable:
 
 ~~~powershell
-$archive = 'C:\Tools\line-desktop-mcp-v3.0.0-source.zip'
-$archiveRoot = 'C:\Tools\line-desktop-mcp-v3.0.0-source'
-Invoke-WebRequest -Uri 'https://github.com/bensonmaxai/line-desktop-mcp/archive/refs/tags/v3.0.0.zip' -OutFile $archive
+$archive = 'C:\Tools\line-desktop-mcp-v3.0.1-source.zip'
+$archiveRoot = 'C:\Tools\line-desktop-mcp-v3.0.1-source'
+Invoke-WebRequest -Uri 'https://github.com/bensonmaxai/line-desktop-mcp/archive/refs/tags/v3.0.1.zip' -OutFile $archive
 Expand-Archive -LiteralPath $archive -DestinationPath $archiveRoot
-Set-Location (Join-Path $archiveRoot 'line-desktop-mcp-3.0.0')
+Set-Location (Join-Path $archiveRoot 'line-desktop-mcp-3.0.1')
 npm ci --ignore-scripts
 ~~~
 
-The source archive is the v3.0.0 GitHub tag snapshot, but has no .git metadata,
+The source archive is the v3.0.1 GitHub tag snapshot, but has no .git metadata,
 so git describe is only available with the checkout path.
 
 ### Attached release package
 
-Alternatively, download `line-desktop-mcp-3.0.0.tgz` and `SHA256SUMS.txt` from the
-[v3.0.0 release](https://github.com/bensonmaxai/line-desktop-mcp/releases/tag/v3.0.0).
+Alternatively, download `line-desktop-mcp-3.0.1.tgz` and `SHA256SUMS.txt` from the
+[v3.0.1 release](https://github.com/bensonmaxai/line-desktop-mcp/releases/tag/v3.0.1).
 Compare the archive's `Get-FileHash -Algorithm SHA256` result with the checksum
 file before extracting. Extract into a new local directory, run
 `npm ci --ignore-scripts` inside its `package` subdirectory, and point the MCP
@@ -93,7 +198,7 @@ the release; it is not a publication to the npm registry or an MCPB bundle.
 
 ## Prepare the required runtime
 
-Complete the v3.0.0 setup in the [Windows installation guide](quickstart-windows.md):
+Complete the v3.0.1 setup in the [Windows installation guide](quickstart-windows.md):
 
 - Node.js 24 LTS or newer.
 - Windows x64, a signed-in supported LINE Desktop build, and a 64-bit Python.
@@ -116,7 +221,7 @@ operation is ready.
 ## Retarget the existing MCP registration
 
 Keep the server name line-desktop-mcp. Change its command, src/server.js
-argument, and environment to point at C:\Tools\line-desktop-mcp-v3; do not
+argument, and environment to point at C:\Tools\line-desktop-mcp-v3.0.1; do not
 create a second normal-workflow server identity.
 
 At minimum, a complete Windows extension configuration is:
@@ -125,11 +230,11 @@ At minimum, a complete Windows extension configuration is:
 {
   "command": "C:/Tools/node/node.exe",
   "args": [
-    "C:/Tools/line-desktop-mcp-v3/src/server.js"
+    "C:/Tools/line-desktop-mcp-v3.0.1/src/server.js"
   ],
   "env": {
     "LINE_MCP_EXTENSIONS": "1",
-    "LINE_MCP_PYTHON": "C:/Tools/line-desktop-mcp-v3/.venv/Scripts/python.exe",
+    "LINE_MCP_PYTHON": "C:/Tools/line-desktop-mcp-v3.0.1/.venv/Scripts/python.exe",
     "LINE_MCP_SQLITE3MC_DLL": "C:/Tools/line-desktop-mcp-runtime/sqlite3mc-2.5.1/dll/sqlite3mc_x64.dll",
     "LINE_MCP_CUA_DRIVER": "C:/Tools/line-desktop-mcp-runtime/cua-driver-rs-0.23.2/cua-driver.exe",
     "LINE_MCP_AUTOHOTKEY": "C:/Program Files/AutoHotkey/v2/AutoHotkey64.exe"
@@ -140,7 +245,7 @@ At minimum, a complete Windows extension configuration is:
 Replace every sample with a real absolute path. The CUA filename is only an
 example; use the extracted driver executable. The AutoHotkey line is optional
 when the standard installation path is available. Do not rely on a checkout
-.env: v3.0.0 receives every LINE_MCP_* value explicitly from the MCP client.
+.env: v3.0.1 receives every LINE_MCP_* value explicitly from the MCP client.
 
 Restart or reconnect the client after retargeting so it refreshes its tool
 schema. Omitting LINE_MCP_EXTENSIONS still exposes the five default descriptors,
@@ -148,7 +253,7 @@ but does not bypass v3's named-chat GUI prerequisites.
 
 ## What changes from v1/v2
 
-| Area | v3.0.0 behavior |
+| Area | v3.0.1 behavior |
 | --- | --- |
 | Package, repository, MCP name | Still line-desktop-mcp; use the same GitHub repository and MCP registration name. |
 | Tool catalogue | LINE_MCP_EXTENSIONS=1 exposes 29 Windows tools. Without it, five default descriptors remain with compatible names, order, and input schemas; descriptions and platform availability are updated. |
@@ -190,14 +295,14 @@ path or automatically replay an uncertain action.
 
 After reconnecting, start with get_line_capabilities({}), which does not read a
 chat, inspect media, operate LINE, or send anything. With Windows extensions
-enabled, expect toolCount: 29. get_line_status({}) is also chat-free, but does
-not prove full reader or GUI readiness.
+enabled, v3.2.0 reports `toolCount: 26`; v3.0.1 reported 29. `get_line_status({})`
+is also chat-free, but does not prove full reader or GUI readiness.
 
 For synthetic local verification from the v3 checkout:
 
 ~~~powershell
-Set-Location C:\Tools\line-desktop-mcp-v3
-$env:LINE_MCP_PYTHON = 'C:\Tools\line-desktop-mcp-v3\.venv\Scripts\python.exe'
+Set-Location C:\Tools\line-desktop-mcp-v3.0.1
+$env:LINE_MCP_PYTHON = 'C:\Tools\line-desktop-mcp-v3.0.1\.venv\Scripts\python.exe'
 $env:LINE_MCP_SQLITE3MC_DLL = 'C:\Tools\line-desktop-mcp-runtime\sqlite3mc-2.5.1\dll\sqlite3mc_x64.dll'
 npm test
 npm run test:python
@@ -245,7 +350,7 @@ an uncertain send.
 | ENGINE_DLL_UNCONFIGURED or ENGINE_INTEGRITY_FAILED | Recheck the absolute DLL path and SHA-256 from the installation guide. Do not substitute a DLL. |
 | A status call succeeds but local reads fail | get_line_status is not full dependency readiness. Recheck the x64 venv, both imports, configured LINE_MCP_PYTHON, and configured DLL. |
 | LINE_BUSY | Another v1, v2, or v3 bridge operation owns the shared lock. Let it finish and use one active bridge. |
-| Old HTTP settings no longer work | Remove them and configure a local stdio MCP server. v3.0.0 has no HTTP/REST replacement. |
+| Old HTTP settings no longer work | Remove them and configure a local stdio MCP server. v3.0.1 has no HTTP/REST replacement. |
 
 See [Windows installation](quickstart-windows.md) for fixed download hashes and
 complete environment setup, and [Features](features.md) for scope, media, and

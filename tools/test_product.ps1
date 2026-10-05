@@ -31,4 +31,4 @@ if ($LASTEXITCODE -ne 0) {
     throw "Python unit tests failed with exit code $LASTEXITCODE"
 }
 
-Write-Host "PRODUCT TESTS GREEN (Node: 221 passed, Python: 103 passed/skipped)"
+Write-Host "PRODUCT TESTS GREEN"

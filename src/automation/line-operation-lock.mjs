@@ -17,7 +17,10 @@ export const LINE_BUSY = 'LINE_BUSY';
 const OPERATION_KIND_PATTERN = /^[A-Za-z][A-Za-z0-9._:-]{0,63}$/;
 const HELPER_READY = 'LINE_OPERATION_LOCK_READY';
 const HELPER_BUSY_EXIT_CODE = 75;
-const HELPER_STARTUP_TIMEOUT_MS = 5_000;
+// Windows hosted runners can take longer than five seconds to start a fresh
+// PowerShell process while the Python matrix is under load. Keep startup
+// bounded without weakening busy-lock handling or taking over an existing lock.
+const HELPER_STARTUP_TIMEOUT_MS = 15_000;
 const HELPER_RELEASE_TIMEOUT_MS = 5_000;
 const HELPER_PATH = fileURLToPath(
   new URL('./hold-line-operation-lock.ps1', import.meta.url),
