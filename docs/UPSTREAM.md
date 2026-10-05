@@ -53,7 +53,7 @@ Baseline 代表「已審查」，不代表「全部已合併」。
 - 遠端曾存在 `origin/codex/windows-line-extensions`，經比對為 `main` 之嚴格歷史祖先分支，已於本 fork origin 清理刪除。
 - 本 fork **唯一長期跟隨分支為 `upstream/main`**。
 
-### 二、上游 PR 盤點（共 2 筆）
+### 二、上游 PR 盤點（共 1 筆）
 
 `#2`（closed，未合併）2026-10-03 判定不採用，見 [`DECISIONS.md`](DECISIONS.md) 同日條目。水位 `2`，以 [`tools/upstream_baseline.json`](../tools/upstream_baseline.json) 為準。
 
@@ -67,15 +67,14 @@ Baseline 代表「已審查」，不代表「全部已合併」。
 
 為避免每次巡檢重複評估既有項目，本專案實施嚴格的水位線（Watermark）機制：
 
-1. **基準水位鎖定**：
-   - Commit 水位：`b66fad4ac837240e8fc5ac3225bd04188dc7812c`（短 SHA `b66fad4`）
-   - PR 水位：`0`
+1. **基準水位鎖定**（現行值以 [`tools/upstream_baseline.json`](../tools/upstream_baseline.json) 為準；以下為 2026-10-03 的值）：
+   - Commit 水位：`555c7c72a7f52e86bce26513fd7214b489614aed`（短 SHA `555c7c7`，v3.3.5）
+   - PR 水位：`2`（PR 與 issue 共用編號；目前上游只有 PR `#2`）
    - Issue 水位：`1`
-   - 記錄於 [`tools/upstream_baseline.json`](../tools/upstream_baseline.json)。
 
 2. **增量巡檢機制**：
    - 每次執行 `tools/check_upstream_updates.py` 或 GitHub Actions 每週排程時，檢查器會自動過濾 `number <= watermark` 的項目。
-   - 只有編號大於 **#1** 的新開 PR / Issue，或 `main` 上高於 `b66fad4` 的新 Commit，才會出現在待審報告中。
+   - 只有編號高於對應水位的新 PR／Issue，或 `main` 上 `reviewed_through` 之後的新 Commit，才會出現在待審報告中。
    - 當新項目被審查完畢並於 `docs/DECISIONS.md` 記錄結論後，再遞增更新 baseline 水位。
 
 ## 2026-09-30：審至 `555c7c7`（v3.3.5）

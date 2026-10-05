@@ -137,6 +137,7 @@
 | `docs/MIGRATING.md`、`docs/README.en.md`、`docs/README.id.md`、`docs/README.ja.md`、`docs/README.th.md`、`docs/quickstart-windows.md` | 安裝與支援來源改指本 fork 的 `main` |
 | `test/line-local-reader.test.mjs` | 子程序清理測試的 `timeoutMs` 1000 → 5000，GitHub Windows runner 在矩陣負載下排程較慢 |
 | `src/automation/line-operation-lock.mjs` | `HELPER_STARTUP_TIMEOUT_MS` 5000 → 15000，同一原因；不影響忙碌鎖判定，也不接管既有的鎖 |
+| `src/automation/line-operation-lock.mjs`、`src/automation/hold-line-operation-lock.ps1`、`test/line-operation-lock.test.mjs` | **整套跨程序操作鎖是 fork 自己的實作**（上游沒有 helper 鎖與上述常數），2026-10-03 之前就存在、上游這段期間沒動這些檔，所以合併時自動保留。同步上游時這三個檔要保留 fork 版：`hold-line-operation-lock.ps1` 以 `FileMode.CreateNew` 取鎖，鎖已存在就回 exit 75（`LINE_BUSY`），不接管他人的鎖 |
 
 **上游問題（低風險，記錄追蹤，未修）**：
 
