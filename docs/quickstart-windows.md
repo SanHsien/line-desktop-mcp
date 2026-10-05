@@ -230,9 +230,9 @@ The CUA Driver filename above is illustrative: use the exact `.exe` path
 printed by the extraction command. The standard AutoHotkey path is already the
 default; including it makes the sample explicit. Set
 `LINE_MCP_AUTOHOTKEY` only to override a nonstandard installation.
-If your local account has an exceptionally large message database exceeding 256MB,
-you may optionally set `LINE_MCP_MAX_SOURCE_BYTES` (e.g. `"536870912"` for 512MB)
-to raise the reader file size cap.
+The reader accepts a message database up to 2 GiB by default. Set
+`LINE_MCP_MAX_SOURCE_BYTES` only if yours is larger (up to 8 GiB); a smaller
+value lowers the cap. See the size-limit table below.
 
 For a new Codex registration, the same values can be supplied with quoted
 PowerShell arguments:

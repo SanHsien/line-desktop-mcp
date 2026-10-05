@@ -120,3 +120,28 @@
 **既存、非本輪引入**：`npm audit --omit=dev` 的 2 個 moderate（`fast-uri`、`ip-address`，皆為傳遞依賴），採用前的 `main` 就有，由 Dependabot 處理。
 
 **PR #2**（上游關閉未合併，多個 LINE 資料庫與無名單聊）：不採用。它改的 `line_encrypted_snapshot.py`／`line-reader.py` 在 v3.x 已重寫，原補丁無法套用；上游若重新提出再審。
+
+### 2026-10-03 補記：合併後的獨立審查（2026-10-06）
+
+對 `fa08f4f..33ac221` 做 fresh-context 審查，結論 `fix-first`：`main` 保留，不回退。送出、轉發、檔案處理、本機 DB 讀取、外部程序啟動沒有發現會送錯人、自動重送或繞過確認的缺陷。
+
+**本次修正**：
+
+- `docs/quickstart-windows.md`：fork 2026-09-12 的上限說明（「超過 256MB 可設 512MB 提高上限」）在上游預設改為 2 GiB 後會讓人把上限調低，改為「預設 2 GiB，超過才設，最多 8 GiB」。
+- `docs/UPSTREAM.md`：PR 盤點與 issue #1 狀態改成與本條一致。
+
+**衝突表漏列的 fork 差異**（合併時 PR 分支上另有追加提交，一併記下，避免下次同步被蓋掉）：
+
+| 檔案 | 差異 |
+| --- | --- |
+| `docs/MIGRATING.md`、`docs/README.en.md`、`docs/README.id.md`、`docs/README.ja.md`、`docs/README.th.md`、`docs/quickstart-windows.md` | 安裝與支援來源改指本 fork 的 `main` |
+| `test/line-local-reader.test.mjs` | 子程序清理測試的 `timeoutMs` 1000 → 5000，GitHub Windows runner 在矩陣負載下排程較慢 |
+| `src/automation/line-operation-lock.mjs` | `HELPER_STARTUP_TIMEOUT_MS` 5000 → 15000，同一原因；不影響忙碌鎖判定，也不接管既有的鎖 |
+
+**上游問題（低風險，記錄追蹤，未修）**：
+
+- `src/extensions/line-plain-send.mjs` 的送出 journal 防護比轉發 journal 弱：`mkdir` 未檢查連結或 reparse point、讀紀錄不限大小也不驗格式、找不到 `LOCALAPPDATA` 時退回 `homedir()`。需要同一使用者的寫入權才能利用；格式錯誤時在 GUI 動作前就拋錯，結果是不送出。比照 `line-forward-transaction.mjs` 的 `ensureSafeRoot`／`readRecord` 補強。
+- `src/extensions/line-forward-transaction.mjs`：任一損毀的轉發 journal 會讓所有轉發的 `prepare`／`confirm` 失敗；方向是安全的，但沒有復原說明。
+- `src/extensions/line-forward-ui.mjs`：最後一次就緒檢查與點擊之間隔著寫 journal；期間若對話框變動不會重驗。journal 已先寫入，結果一律標 `UNCERTAIN`，不會自動重送。
+
+審查未涵蓋：實機 LINE Desktop 送出、轉發與 OCR；約 18.6k 行中未逐行讀完的部分（逐行讀過送出／轉發交易、匯出、reader 啟動與清理，其餘定向抽查）。

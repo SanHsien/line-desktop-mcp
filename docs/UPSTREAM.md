@@ -53,15 +53,15 @@ Baseline 代表「已審查」，不代表「全部已合併」。
 - 遠端曾存在 `origin/codex/windows-line-extensions`，經比對為 `main` 之嚴格歷史祖先分支，已於本 fork origin 清理刪除。
 - 本 fork **唯一長期跟隨分支為 `upstream/main`**。
 
-### 二、上游 PR 盤點（共 0 筆）
+### 二、上游 PR 盤點（共 2 筆）
 
-當前無任何待處理之 Open 或 Closed PR。水位鎖定為 `0`。
+`#2`（closed，未合併）2026-10-03 判定不採用，見 [`DECISIONS.md`](DECISIONS.md) 同日條目。水位 `2`，以 [`tools/upstream_baseline.json`](../tools/upstream_baseline.json) 為準。
 
 ### 三、上游 Issue 盤點（共 1 筆）
 
 | Issue 編號 | 標題 | 狀態 | 本輪評估結論與理由 |
 |---|---|---|---|
-| `#1` | SOURCE_TOO_LARGE: 256MB hard cap on whole .edb file blocks all local-history reads for large accounts | OPEN | **本 fork 已修復（2026-09-12）**。原上游 `src/extensions/python/line_encrypted_snapshot.py` 寫死 `MAX_FILE_BYTES = 256 * 1024 * 1024`，導致本機對話紀錄檔大於 256MB 的帳號無法讀取。本 fork 在保留預設 256MB 安全邊界的同時，引進環境變數 `LINE_MCP_MAX_SOURCE_BYTES`（整數 bytes）與 `max_bytes` 參數。使用者若帳號龐大，可於 MCP 設定中自訂調高上限（例如 512MB 或 1GB），解除阻擋。單元測試覆蓋於 `test/python/test_line_encrypted_snapshot.py`。 |
+| `#1` | SOURCE_TOO_LARGE: 256MB hard cap on whole .edb file blocks all local-history reads for large accounts | OPEN | **2026-10-03 起由上游 v3.0.1 串流快照取代**：同一個 `LINE_MCP_MAX_SOURCE_BYTES`，預設 2 GiB、上限 8 GiB，格式不合即拒絕（`SOURCE_LIMIT_INVALID`）；fork 的 `get_max_file_bytes()` 已移除，測試改寫為新介面，見 [`DECISIONS.md`](DECISIONS.md) 同日條目。以下為 2026-09-12 的原始紀錄：**本 fork 已修復（2026-09-12）**。原上游 `src/extensions/python/line_encrypted_snapshot.py` 寫死 `MAX_FILE_BYTES = 256 * 1024 * 1024`，導致本機對話紀錄檔大於 256MB 的帳號無法讀取。本 fork 在保留預設 256MB 安全邊界的同時，引進環境變數 `LINE_MCP_MAX_SOURCE_BYTES`（整數 bytes）與 `max_bytes` 參數。使用者若帳號龐大，可於 MCP 設定中自訂調高上限（例如 512MB 或 1GB），解除阻擋。單元測試覆蓋於 `test/python/test_line_encrypted_snapshot.py`。 |
 
 ### 四、防重複評估機制（Watermark 機制）
 
