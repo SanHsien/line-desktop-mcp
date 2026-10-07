@@ -257,7 +257,7 @@ it refreshes the schema. The first safe call is:
 get_line_capabilities({})
 ~~~
 
-On Windows with `LINE_MCP_EXTENSIONS=1`, expect `toolCount: 26`. This call
+On Windows with `LINE_MCP_EXTENSIONS=1`, expect `toolCount: 33`. This call
 lists bridge capabilities only; it does not read a chat, inspect media, operate
 LINE, or send anything.
 
