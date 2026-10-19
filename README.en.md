@@ -92,6 +92,10 @@ Tests use synthetic messages and simulated UI; they do not access real LINE chat
 - Currently verified against Windows LINE Desktop 26.4.2.3957.
 - OCR and decoding run locally on your device.
 
+## Multi-agent pipeline
+
+This repo is part of the [agent-relay](https://github.com/SanHsien/agent-relay) multi-agent dispatch and verification pipeline (role: candidate for the phone doorbell). It is not yet connected to agent-relay (Phase 1 candidate). The protocol spec and the index of all related repos live in agent-relay.
+
 ## Languages, contribution and license
 
 [Traditional Chinese](README.md) · [English](README.en.md) · [Japanese](docs/README.ja.md) · [Thai](docs/README.th.md) · [Indonesian](docs/README.id.md)

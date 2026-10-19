@@ -122,6 +122,10 @@ npm run test:python
 - 文字存在不等於對方收到或已讀；提及通知需另外核對真實藍色 token。傳送結果不確定時不自動重送。
 - 解碼與 OCR 在本機執行；回傳的工具內容仍由你的 AI 客戶端及模型依其設定處理。
 
+## 多 Agent 流水線
+
+本 repo 是 [agent-relay](https://github.com/SanHsien/agent-relay) 多 Agent 派工與驗收流水線的一環（角色：手機門鈴候選）。目前尚未接上 agent-relay（Phase 1 候選）。協定規格與所有相關 repo 的總目錄見 agent-relay。
+
 ## 語言、貢獻與授權
 
 繁中、日文、泰文與印尼文對應這次官方資料涵蓋的市場，英文作為共通版本。[語言選擇與官方來源](docs/LANGUAGES.md)
