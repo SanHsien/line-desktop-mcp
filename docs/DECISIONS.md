@@ -182,6 +182,8 @@
 
 **驗證**：雲端 Linux 容器（Node 22、Python 3.13）只能跑非 Windows 部分：`npm test` 409 項中 382 pass／20 fail，失敗的 20 項與採用前完全相同（PowerShell 操作鎖 helper 與 reader 子程序清理，Linux 無法執行），上游新增 28 項全過；Python 測試的錯誤全是 `ctypes.WinDLL`／`LOCALAPPDATA` 缺失。完整驗證以 Windows CI 為準。
 
+**fork 差異（同步上游時要保留）**：`src/extensions/line-date-capsule.mjs` 的 `locateLineDateCapsule()` 多一個 `{timeoutMs}` 選項（預設仍為上游的 5000），`test/line-date-capsule.test.mjs` 傳 30000。PR CI 的 py3.11 矩陣上，Windows PowerShell 冷啟動加逐像素 `GetPixel` 在 5038 ms 被殺；同一 commit 其他矩陣通過。產品預設值不變；若實機也常逾時（`LINE_BOUND_CONTEXT_UNVERIFIED` 後找不到日期列），再評估調高預設或改用 `LockBits`。
+
 **未驗證**：視覺上下文確認、帶 ref 開啟聊天室、多行草稿重驗的實機行為（需已登入的 LINE Desktop）。
 
 **PR／Issue**：上游 PR 水位 #2、issue 水位 #1，無新項目。
