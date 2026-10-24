@@ -1,5 +1,31 @@
 # Changelog
 
+## 3.3.8 — 2026-10-14 (Asia/Taipei)
+
+- Add bounded exact-name identity candidates with opaque chat/account references and existing-chat status, without reading messages or media. Paired references can open a unique existing direct chat despite unopened-name collisions; send-context verification and collision refusals remain required.
+- Remove a redundant pre-input draft snapshot while retaining complete Unicode/multiline value checks, expected-draft protection, fresh chat guards and post-input readback. Optional development metrics contain fixed counts/durations only and are disabled by default.
+- Fix reply-source confirmation for an already verified independent chat window. Recheck the exact HWND/PID/title and source pixels; changed or minimized windows still refuse without input.
+- Document the observed guided Unsend completion path and foreground fallback after a verified background NO-OP. Recall remains guided UI, not a new automatic recall endpoint.
+- Align package and shrinkwrap root versions. No dependency changes.
+
+Validation and remaining UI limits are recorded in the [release notes](docs/releases/v3.3.8.en.md) and [targeted validation](docs/VALIDATION_v3.3.8.md).
+
+## 3.3.7 — 2026-10-13 (Asia/Taipei)
+
+- Preserve direct-chat context verification when a growing multiline composer moves the unchanged date and two newest message rows vertically. All original context/date/message pixel hashes must still match, every row must remain fully visible, and window, paired identity, scoped page and expiry checks remain unchanged.
+- Preserve a sanitized inner postcondition error code so an unreadable snapshot can be distinguished from a changed chat or context. A possibly staged draft still refuses Return and never replays automatically.
+
+Validation uses synthetic multiline draft and refusal fixtures, without any additional LINE input or send. [Release notes](docs/releases/v3.3.7.en.md).
+
+## 3.3.6 — 2026-10-13 (Asia/Taipei)
+
+- Recognize the exact LINE Desktop 26.5.0.3975 build while retaining executable hash, size and process checks.
+- Incomplete OCR now returns one bounded context image and a short-lived visual token. A caller must inspect both newest texts, their individual times/directions and the displayed date; no expected text is prefilled.
+- Route the affected CUA 0.28.2 right-click alias through its supported exact-window `click(button:right)` interface; preserve target, snapshot and explicit delivery mode.
+- Recheck the complete scoped local page, paired account/chat refs, exact window, context pixels and empty composer before READY. Consume confirmed context before input, preserve the caller's narrower read scope, and keep existing send approval, idempotency and local receipt checks.
+
+Validation: focused regression fixtures and an authorized live read-only preparation/confirmation/context-consumption passed. No message was staged or sent by this validation. An independent bounded security review found no remaining blocking issue. [Release notes](docs/releases/v3.3.6.en.md).
+
 ## 3.3.5 — 2026-09-29 (Asia/Taipei)
 
 - Fix mixed chat/message search refusal when a 30px title crop leaves too little bottom margin to read the complete name, while edge-clipped OCR separately misses characters or the count in a category header. Read each category from its own UIA row, use a 35px title crop, and optionally add a 16px white OCR margin with coordinates mapped back to the source image; reject out-of-bounds evidence.

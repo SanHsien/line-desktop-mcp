@@ -89,7 +89,7 @@ def test_baseline_file_is_valid_and_complete() -> None:
     assert baseline["repo"] == "https://github.com/bensonmaxai/line-desktop-mcp.git"
     assert baseline["branch"] == "main"
     assert len(baseline["reviewed_through"]) == 40
-    assert baseline["reviewed_through"] == "555c7c72a7f52e86bce26513fd7214b489614aed"
+    assert baseline["reviewed_through"] == "097324e678e6dba60a4c4e187054f8b7397a9100"
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", baseline["reviewed_date"])
     assert isinstance(baseline["reviewed_pr_through"], int)
     assert isinstance(baseline["reviewed_issue_through"], int)

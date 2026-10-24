@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-
+import { createHash } from 'node:crypto';
+import { writeDraft } from '../src/extensions/line-ui.mjs';
 import { createLineExtensions } from '../src/extensions/line-extensions.mjs';
-import { boundDirectScope, boundDirectTail, visibleDate, matchBoundDirectRows, prepareBoundDirect } from '../src/extensions/line-bound-direct.mjs';
+import { boundDirectScope,boundDirectTail,visibleDate,matchBoundDirectRows,prepareBoundDirect,confirmBoundDirectContext,confirmedBoundDirectScope,inspectBoundDirect } from '../src/extensions/line-bound-direct.mjs';
 
 const NOW = Date.parse('2026-09-24T02:03:00Z');
 const chatName = 'Synthetic contact';
@@ -112,7 +113,7 @@ test('visible dates and message rows need matching weekday, direction, minute, a
   assert.throws(() => matchBoundDirectRows(clipped, tail, tail[0].date, bounds));
 });
 
-function detachedFixture({ pixelsChanged = false, draft = '', staleWindow = false } = {}) {
+function detachedFixture({ pixelsChanged = false, draft = '', staleWindow = false, visual = false } = {}) {
   const target = { pid: 321, window_id: 654 };
   const window = { ...target, app_name: 'LINE.exe', title: chatName,
     bounds: { x: 1100, y: 150, width: 740, height: 1050 }, is_on_screen: true, minimized: false };
@@ -154,11 +155,12 @@ function detachedFixture({ pixelsChanged = false, draft = '', staleWindow = fals
   } };
   const ui = { withClient: callback => callback(api),
     visual: { imageDimensions: () => ({ width: 740, height: 1050 }),
-      fingerprintRegion: async (image, region) => ({ region, sha256: image.data === 'same' ? 'a'.repeat(64) : 'b'.repeat(64) }) },
+      fingerprintRegion: async (image, region) => ({ region, sha256: image.data === 'same' ? 'a'.repeat(64) : 'b'.repeat(64), image }),
+      locateDateCapsule: async () => true },
     ocr: { recognizeImage: async () => ({ coordinateSpace: 'input-png-pixels', scaleFactor: 1,
-      width: 740, height: 1050, lines }) },
+      width: 740, height: 1050, lines:visual?[]:lines }) },
   };
-  return { ui, calls, get snapshots() { return snapshots; } };
+  return { ui, api, elements, window, calls, get snapshots() { return snapshots; } };
 }
 
 test('synthetic detached prepare uses two screenshot observations and leaves input untouched', async t => {
@@ -191,4 +193,191 @@ test('synthetic detached prepare refuses changed pixels, window geometry, and a 
       { now: () => NOW, readMessages: async () => local() }), error => error.code === code);
     assert.ok(fake.calls.every(call => ['list_windows', 'get_window_state'].includes(call.name)));
   }
+});
+
+const observation = token => ({...args,token,observedDate:'今天',observedMessages:[
+  {text:'First synthetic text',time:'上午10:01',direction:'incoming'},
+  {text:'Second synthetic text',time:'10:02',direction:'outgoing'}]});
+test('visual confirmation returns only crop and opaque token, preserves bounded scope and consumes at input boundary',async t=>{
+  t.mock.method(Date,'now',()=>NOW);
+  const fake=detachedFixture({visual:true}), scopes=[];
+  const readMessages=async scope=>{scopes.push(scope);return local();};
+  const bounded={...args,dateFrom:'2026-09-23',dateTo:'2026-09-24',messageLimit:8};
+  const pending=await prepareBoundDirect(fake.ui,bounded,{now:()=>NOW,readMessages});
+  assert.equal(pending.status,'PENDING_VISUAL_CONTEXT');assert.equal(pending.images.length,1);
+  assert.ok(!JSON.stringify(pending).includes('First synthetic text'));
+  assert.ok(!JSON.stringify(pending).includes('Second synthetic text'));
+  const ready=await confirmBoundDirectContext(fake.ui,observation(pending.token),{now:()=>NOW,readMessages});
+  assert.equal(ready.status,'READY');assert.equal(ready.evidence.proofKind,'bound-direct-caller-visual-context');
+  await assert.rejects(confirmBoundDirectContext(fake.ui,observation(pending.token),{now:()=>NOW,readMessages}),e=>e.code==='LINE_VISUAL_CONTEXT_TOKEN_INVALID');
+  const scope=confirmedBoundDirectScope(fake.ui,args,NOW);assert.equal(scope.messageLimit,8);assert.equal(scope.dateFrom,'2026-09-23');
+  const proof=await inspectBoundDirect(fake.ui,fake.api,scope,local(),()=>readMessages(scope),()=>{},{now:()=>NOW});
+  assert.equal(proof.evidence.proofKind,'bound-direct-caller-visual-context');
+  await inspectBoundDirect(fake.ui,fake.api,scope,local(),()=>readMessages(scope),()=>{},{consumeVisual:true,now:()=>NOW});
+  assert.equal(confirmedBoundDirectScope(fake.ui,args,NOW).messageLimit,30);
+  assert.ok(scopes.every(scope=>scope.messageLimit===8));
+  assert.ok(fake.calls.every(call=>['list_windows','get_window_state'].includes(call.name)));
+});
+test('visual observations reject text, time, direction, date and paired reference mismatches and consume failed tokens',async t=>{
+  t.mock.method(Date,'now',()=>NOW);
+  for(const change of [a=>{a.observedMessages[0].text='invented';},a=>{a.observedMessages[0].time='10:09';},
+    a=>{a.observedMessages[0].direction='outgoing';},a=>{a.observedDate='昨天';},
+    a=>{a.expectedChatRef='chat:'+ 'f'.repeat(24);},a=>{a.expectedOwnSenderRef='sender:'+ 'f'.repeat(24);},
+    a=>{a.chatName='Other';},a=>{a.observedMessages.pop();}]) {
+    const fake=detachedFixture({visual:true}), deps={now:()=>NOW,readMessages:async()=>local()};
+    const pending=await prepareBoundDirect(fake.ui,args,deps), observed=observation(pending.token);change(observed);
+    await assert.rejects(confirmBoundDirectContext(fake.ui,observed,deps),e=>e.code==='LINE_VISUAL_CONTEXT_MISMATCH');
+    await assert.rejects(confirmBoundDirectContext(fake.ui,observation(pending.token),deps),e=>e.code==='LINE_VISUAL_CONTEXT_TOKEN_INVALID');
+  }
+});
+test('visual confirmation rejects expiry, page drift, changed context pixels, moved window and nonempty drafts',async t=>{
+  t.mock.method(Date,'now',()=>NOW);
+  for(const kind of ['expiry','page','pixels','window','draft']) {
+    const fake=detachedFixture({visual:true});let now=NOW, drift=false;
+    const readMessages=async()=>{const value=local();value.freshness.snapshotCapturedAt=new Date(now).toISOString();
+      if(drift)value.messages.unshift(message('Earlier changed message','00',peerSenderRef,'e'));return value;};
+    const deps={now:()=>now,readMessages}, pending=await prepareBoundDirect(fake.ui,args,deps);
+    if(kind==='expiry')now+=90000;
+    if(kind==='page')drift=true;
+    if(kind==='pixels')fake.ui.visual.fingerprintRegion=async(image,region)=>({region,sha256:'f'.repeat(64),image});
+    if(kind==='window')fake.window.bounds.x++;
+    if(kind==='draft')fake.elements.find(e=>e.role==='Edit').value='existing draft';
+    // The fixture window is an object shared with the captured reference; replace the API response for a moved window.
+    if(kind==='window'){fake.window.bounds.x--;const original=fake.api.call;
+      fake.api.call=async(name,options)=>name==='list_windows'?{windows:[{...fake.window,bounds:{...fake.window.bounds,x:1101}}]}:original(name,options);}
+    await assert.rejects(confirmBoundDirectContext(fake.ui,observation(pending.token),deps),e=>e.code===
+      ({expiry:'LINE_VISUAL_CONTEXT_EXPIRED',page:'LINE_BOUND_CONTEXT_CHANGED',pixels:'LINE_BOUND_CONTEXT_CHANGED',window:'LINE_CHAT_STALE',draft:'LINE_DRAFT_CONFLICT'})[kind]);
+  }
+});
+test('normal OCR also rejects changes elsewhere in the scoped page',async t=>{
+ t.mock.method(Date,'now',()=>NOW);const fake=detachedFixture();let reads=0;
+ await assert.rejects(prepareBoundDirect(fake.ui,args,{now:()=>NOW,readMessages:async()=>{const value=local();
+   if(++reads>1)value.messages.unshift(message('Earlier changed message','00',peerSenderRef,'e'));return value;}}),e=>e.code==='LINE_BOUND_CONTEXT_CHANGED');
+});
+test('explicit scopes are paired, limited to recent Taipei dates and integer bounded page size',()=>{
+ assert.equal(boundDirectScope({...args,dateFrom:'2026-09-23',dateTo:'2026-09-24',messageLimit:8},NOW).messageLimit,8);
+ for(const extra of [{dateFrom:'2026-09-23'},{dateFrom:'2026-09-20',dateTo:'2026-09-24'},
+ {dateFrom:'2026-09-24',dateTo:'2026-09-25'},{dateFrom:'2026-09-24',dateTo:'2026-09-23'},
+ {messageLimit:0},{messageLimit:31},{messageLimit:1.5}])assert.throws(()=>boundDirectScope({...args,...extra},NOW),e=>e.code==='LINE_INVALID_ARGUMENT');
+});
+
+test('pending capacity is four per UI and a staged composer does not invalidate an accepted context guard',async t=>{
+ t.mock.method(Date,'now',()=>NOW);const fake=detachedFixture({visual:true}),deps={now:()=>NOW,readMessages:async()=>local()},tokens=[];
+ for(let i=0;i<5;i++)tokens.push((await prepareBoundDirect(fake.ui,args,deps)).token);
+ assert.equal(new Set(tokens).size,5);
+ await assert.rejects(confirmBoundDirectContext(fake.ui,observation(tokens[0]),deps),e=>e.code==='LINE_VISUAL_CONTEXT_TOKEN_INVALID');
+ await confirmBoundDirectContext(fake.ui,observation(tokens[4]),deps);
+ const scope=confirmedBoundDirectScope(fake.ui,args,NOW);
+ const proof=await inspectBoundDirect(fake.ui,fake.api,scope,local(),async()=>local(),()=>{},{consumeVisual:true,now:()=>NOW});
+ fake.elements.find(e=>e.role==='Edit').value='new staged message';
+ await proof.guard.verify();
+});
+
+test('fresh reader timing metadata may change while the complete stable page remains identical',async t=>{
+ t.mock.method(Date,'now',()=>NOW);const fake=detachedFixture({visual:true});let reads=0;
+ const readMessages=async()=>{const value=local(),n=++reads;
+   value.queryCompletedAt=new Date(NOW+n).toISOString();value.requestStartedAt=new Date(NOW+n-1).toISOString();
+   value.freshness.snapshotCapturedAt=new Date(NOW+n).toISOString();value.freshness.readerTiming={duration:n};
+   value.scope.snapshotCaptureTimes=[n];value.readerTiming={duration:n};return value;};
+ const deps={now:()=>NOW,readMessages},pending=await prepareBoundDirect(fake.ui,args,deps);
+ assert.equal((await confirmBoundDirectContext(fake.ui,observation(pending.token),deps)).status,'READY');
+ const scope=confirmedBoundDirectScope(fake.ui,args,NOW);
+ await inspectBoundDirect(fake.ui,fake.api,scope,await readMessages(),readMessages,()=>{},{now:()=>NOW});
+ assert.ok(reads>=4);
+});
+
+// Model a composer growing after exactly one set_value, with screenshot hashes
+// tied to crop geometry so the old, untranslated crops cannot pass.
+function reflowFixture({visual=false,change=()=>{}}={}) {
+  const fake=detachedFixture({visual}), originalCall=fake.api.call;
+  let shifted=false;
+  const crops=[];
+  fake.ui.visual.fingerprintRegion=async(image,region)=>{
+    crops.push({...region});
+    const original={...region,y:region.y+(shifted?120:0)};
+    const sha256=createHash('sha256').update(JSON.stringify(original)+(image.data==='changed'?'changed':'')).digest('hex');
+    return {region,sha256,image};
+  };
+  fake.api.call=async(name,options)=>{
+    if(name==='set_value') {
+      fake.calls.push({name,options});
+      assert.equal(shifted,false,'Only one composer write is allowed');
+      shifted=true;
+      for(const item of fake.elements) {
+        if([24,31,32,33].includes(item.element_index)){item.frame.y-=120;item.frame.h+=120;}
+        if([34,35,37].includes(item.element_index))item.frame.h-=120;
+        if(item.role==='ListItem')item.frame.y-=120;
+      }
+      fake.elements.find(item=>item.role==='Edit').value=options.value;
+      change(fake);
+      return {success:true};
+    }
+    const result=await originalCall(name,options);
+    if(name==='get_window_state')return {...result,elements:structuredClone(fake.elements)};
+    return result;
+  };
+  return {...fake,crops};
+}
+async function reflowProof(fake,visual) {
+  const deps={now:()=>NOW,readMessages:async()=>local()};
+  if(visual){
+    const pending=await prepareBoundDirect(fake.ui,args,deps);
+    await confirmBoundDirectContext(fake.ui,observation(pending.token),deps);
+  }
+  return inspectBoundDirect(fake.ui,fake.api,boundDirectScope(args,NOW),local(),async()=>local(),()=>{},{now:()=>NOW});
+}
+const longDraft='Synthetic long composer draft.\n'.repeat(40);
+test('full writeDraft accepts identical complete context after long composer vertical reflow for both proofs',async t=>{
+  t.mock.method(Date,'now',()=>NOW);
+  for(const visual of [false,true]) {
+    const fake=reflowFixture({visual}),proof=await reflowProof(fake,visual);
+    const result=await writeDraft(fake.api,proof.inspected.target,longDraft,'',proof.options);
+    assert.equal(result.changed,true);
+    assert.equal(fake.elements.find(item=>item.role==='Edit').value,longDraft);
+    const writes=fake.calls.filter(call=>!['list_windows','get_window_state'].includes(call.name));
+    assert.deepEqual(writes.map(call=>call.name),['set_value']);
+    assert.equal(writes[0].options.value,longDraft);
+    assert.deepEqual(fake.crops.slice(-4).map(region=>region.y),[430,430,489,613]);
+    // The same accepted context remains required after the write.
+    await proof.guard.verify();
+  }
+});
+test('full writeDraft refuses clipped, resized, unequal or changed context after reflow',async t=>{
+  t.mock.method(Date,'now',()=>NOW);
+  const row=(fake,index)=>fake.elements.find(item=>item.element_index===index);
+  const cases=[
+    ['clipped date with common shift',fake=>{for(const item of fake.elements)if(item.role==='ListItem')item.frame.y-=450;}],
+    ['clipped newest row',fake=>{row(fake,44).frame.h+=140;}],
+    ['one pixel clipped newest row',fake=>{row(fake,32).frame.y=959;}],
+    ['unequal shift',fake=>{row(fake,43).frame.y++;}],
+    ['horizontal shift',fake=>{row(fake,44).frame.x++;}],
+    ['resized row',fake=>{row(fake,43).frame.w--;}],
+    ['different parent',fake=>{row(fake,43).parent_index=35;}],
+    ['missing date',fake=>{fake.elements.splice(fake.elements.indexOf(row(fake,40)),1);}],
+    ['newest row replaced',fake=>{fake.elements.push({...row(fake,44),element_index:45,frame:{...row(fake,44).frame,y:980}});}],
+    ['changed pixels',fake=>{const call=fake.api.call;fake.api.call=async(name,options)=>{const result=await call(name,options);
+      return name==='get_window_state'?{...result,images:[{type:'image',mimeType:'image/png',data:'changed'}]}:result;};}],
+    ['body top changed',fake=>{row(fake,22).frame.y++;}],
+    ['header changed',fake=>{row(fake,14).label='Other synthetic header';}],
+    ['root changed',fake=>{row(fake,0).frame.x++;}],
+  ];
+  for(const height of [378,40,124,195])cases.push([`changed crop height ${height}`,fake=>{
+    const fingerprint=fake.ui.visual.fingerprintRegion;
+    fake.ui.visual.fingerprintRegion=async(image,region)=>{const result=await fingerprint(image,region);
+      return region.height===height?{...result,sha256:'f'.repeat(64)}:result;};
+  }]);
+  for(const visual of [false,true])for(const [label,change] of cases) {
+    const fake=reflowFixture({visual,change}),proof=await reflowProof(fake,visual);
+    await assert.rejects(writeDraft(fake.api,proof.inspected.target,longDraft,'',proof.options),
+      error=>error.code==='LINE_UI_POSTCONDITION_UNAVAILABLE' && error.details?.previousCode==='LINE_BOUND_CONTEXT_CHANGED',label);
+    assert.deepEqual(fake.calls.filter(call=>!['list_windows','get_window_state'].includes(call.name)).map(call=>call.name),['set_value']);
+  }
+});
+test('long reflow still rejects a truncated draft readback after one write',async t=>{
+  t.mock.method(Date,'now',()=>NOW);
+  const fake=reflowFixture({change:fake=>{fake.elements.find(item=>item.role==='Edit').value=longDraft.slice(0,40);}});
+  const proof=await reflowProof(fake,false);
+  await assert.rejects(writeDraft(fake.api,proof.inspected.target,longDraft,'',proof.options),error=>error.code==='LINE_DRAFT_WRITE_UNVERIFIED');
+  assert.equal(fake.calls.filter(call=>call.name==='set_value').length,1);
+  assert.ok(!fake.calls.some(call=>call.name==='press_key'));
 });

@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { parseLineHistory, selectLineMessages, formatLineHistory } from './line-history.mjs';
 import { LINE_CAPABILITIES, LINE_SOURCES, LINE_WORKFLOWS } from './line-capabilities.mjs';
 import { LineUi } from './line-ui.mjs';
-import { readLocalLineMessages, readLocalLineChatIdentity, readLocalLineBoundDirectIdentity, readLocalLineRecentChats, validateLocalScope } from './line-local-reader.mjs';
+import { readLocalLineMessages, readLocalLineChatIdentity, readLocalLineBoundDirectIdentity, readLocalLineRecentChats, readLocalLineChatCandidates, validateLocalScope } from './line-local-reader.mjs';
 import { readOpenLinePollState } from './line-poll-reader.mjs';
 import { readLineClientStatus } from './line-client-status.mjs';
 import { LINE_WORKFLOW_PLAN_PROPERTIES, LINE_WORKFLOW_PLAN_SCHEMA, prepareLineWorkflow } from './line-workflow-plan.mjs';
@@ -87,11 +87,19 @@ export const LINE_TOOL_DESCRIPTORS = [
     expectedChatRef: { type: 'string', pattern: '^chat:[0-9a-f]{24}$' },
     expectedOwnSenderRef: { type: 'string', pattern: '^sender:[0-9a-f]{24}$' },
   }, ['chatName', 'chatType'], readOnly, {allOf:[{if:{required:['expectedOwnSenderRef']},then:{required:['expectedChatRef'],properties:{chatType:{const:'direct'}}}}]}),
-  descriptor('prepare_line_send_target', 'Inspect an already-open exact titled direct chat using paired opaque chat/account refs, two latest local text records from the current and previous two Taipei dates, independent visible date/minute/direction/text evidence, and an empty composer. At most 30 metadata-only records. Unopened same-name contacts are allowed only when the existing chat identity is unique. Returns READY or an error without input, staging or sending. This is a current readiness observation, never send approval or a reusable proof; send_message_auto repeats its checks.', {
+  descriptor('prepare_line_send_target', 'Inspect an already-open direct chat with paired chat/account refs and an empty composer. Read at most 30 metadata-only records within the current and previous two Taipei dates; optional dateFrom/dateTo/messageLimit narrow that scope. Full OCR returns READY. If OCR is incomplete, PENDING_VISUAL_CONTEXT returns one short-lived token and a context crop: personally read its nearest date boundary and both newest complete messages, clocks and directions before confirm_line_send_context. No input or send; READY never grants send permission.', {
     chatName:chat,chatType:{type:'string',const:'direct'},
     expectedChatRef:{type:'string',pattern:'^chat:[0-9a-f]{24}$'},
     expectedOwnSenderRef:{type:'string',pattern:'^sender:[0-9a-f]{24}$'},
+    dateFrom:isoDate,dateTo:isoDate,messageLimit:{type:'integer',minimum:2,maximum:30},
   }, ['chatName','chatType','expectedChatRef','expectedOwnSenderRef']),
+  descriptor('confirm_line_send_context', 'After personally inspecting the context image from prepare_line_send_target, supply the displayed date and BOTH complete newest texts, each visible time and direction. Never copy expected local records as observations or infer a hidden date/time. Consume the returned token once; fresh account/chat refs, full local page, window bounds, context pixels and empty composer must still match. READY is a visual readiness confirmation only; send_message_auto consumes this short-lived context before input and preserves send approval/idempotency checks.', {
+    chatName:chat,chatType:{type:'string',const:'direct'},
+    expectedChatRef:{type:'string',pattern:'^chat:[0-9a-f]{24}$'},
+    expectedOwnSenderRef:{type:'string',pattern:'^sender:[0-9a-f]{24}$'},
+    token:sourceToken,observedDate:{type:'string',minLength:1,maxLength:80},
+    observedMessages:{type:'array',minItems:2,maxItems:2,items:{type:'object',additionalProperties:false,properties:{text,time:{type:'string',minLength:1,maxLength:20},direction:{type:'string',enum:['incoming','outgoing']}},required:['text','time','direction']}},
+  }, ['chatName','chatType','expectedChatRef','expectedOwnSenderRef','token','observedDate','observedMessages'], uiOnly),
   descriptor('list_line_recent_chats', 'List direct and group chat names active in the last 14 or 30 Taipei calendar days from local encrypted snapshot metadata. Returns opaque chat refs and last activity times only, without message text, media, or GUI actions. Same-name chats remain separate. A listed chat is not send-target proof; check exact identity again before any action.', {
     days: { type: 'integer', enum: [14, 30] },
     query: { type: 'string', minLength: 1, maxLength: 100, description: 'Case-insensitive literal substring of effective chat name.' },
@@ -134,7 +142,17 @@ export const LINE_TOOL_DESCRIPTORS = [
     inputSchema: { type: 'object', properties: LINE_WORKFLOW_PLAN_PROPERTIES, required: ['workflow', 'chatName'], additionalProperties: false, ...LINE_WORKFLOW_PLAN_SCHEMA },
   },
   descriptor('get_line_status', 'Check the existing LINE/GUI runtime, verified client build and process-instance metadata without reading chats or scanning memory. Unknown builds refuse local chat reading until verified. Presence cannot establish login, connectivity or delivery.', {}),
-  descriptor('open_line_chat', 'Open or reuse the exact uniquely named chat in a titled window. Resolves the local identity, searches when needed and verifies the final window title. May focus LINE; does not type or send messages.', { chatName: chat }, ['chatName'], uiOnly),
+  descriptor('list_line_chat_candidates', 'List at most 20 identity candidates for one exact user-authorized chat name. Returns opaque chat/account refs and distinguishes existing chats from unopened contacts. Reads no messages, does no GUI action and never selects or sends. hasMore forbids assuming the list is complete.', {
+    chatName:chat,limit:{type:'integer',minimum:1,maximum:20,default:20},
+  }, ['chatName'], readOnly),
+  descriptor('open_line_chat', 'Open or reuse the exact chat in a titled window. Name-only requests require global uniqueness. A selected direct chat may carry paired chat/account refs from list_line_chat_candidates; it must still be unique among existing name families, and UI search must prove one safe visible result. May focus LINE. Title verification is not chat-ID or send proof; requiresSendContext preserves the existing independent context check before sending. Does not type or send messages.', {
+    chatName: chat,chatType,
+    expectedChatRef:{type:'string',pattern:'^chat:[0-9a-f]{24}$'},
+    expectedOwnSenderRef:{type:'string',pattern:'^sender:[0-9a-f]{24}$'},
+  }, ['chatName'], uiOnly, {allOf:[
+    {if:{anyOf:[{required:['expectedChatRef']},{required:['expectedOwnSenderRef']}]},
+      then:{required:['expectedChatRef','expectedOwnSenderRef','chatType'],properties:{chatType:{enum:['direct','group']}}}},
+  ]}),
   descriptor('get_line_chat_messages', 'Read one exact chat. A date or complete dateFrom/dateTo range reads one bounded local DB page (at most 31 days) without GUI and returns freshness/pagination; missing dates use the loaded LINE UI history window. Neither source proves complete server history.', bounds, ['chatName'], uiOnly),
   descriptor('search_line_chat_messages', 'Search one exact chat. A date or complete range uses one bounded local DB page without GUI; query is a case-sensitive literal reader filter and sender filters only that page. Local kind filtering refuses because kind is unverified. Missing dates search the loaded UI history window. Zero matches do not prove complete server absence.', { ...filter, query: text }, ['chatName', 'query'], uiOnly),
   descriptor('export_line_chat_history', 'Export one bounded authorized chat page to a new TXT/JSON/CSV file. Explicit dates use local DB without GUI; missing dates use loaded UI history. Local sender filtering is page-only and kind filtering refuses. TXT/CSV project five columns; JSON preserves local fields and metadata. Absolute path required; refuses overwrites and reparse paths. Not a restorable backup.', { ...filter, outputPath: { type: 'string', minLength: 1, maxLength: 4096 }, format: { type: 'string', enum: ['txt', 'json', 'csv'] } }, ['chatName', 'outputPath', 'format'], uiOnly),
@@ -277,7 +295,7 @@ const LEGACY_TOOL_NAMES = new Set(['prepare_line_direct_chat', 'prepare_line_gro
   'get_line_chatroom_history_short', 'get_line_chatroom_history_default', 'get_line_chatroom_history_long']);
 export const ACTIVE_TOOL_DESCRIPTORS = LINE_TOOL_DESCRIPTORS.filter(tool => !LEGACY_TOOL_NAMES.has(tool.name));
 
-export function createLineExtensions(automation, { ui, now = () => new Date(), fileSystem = fs, localReader = readLocalLineMessages, localIdentityReader = readLocalLineChatIdentity, boundIdentityReader = readLocalLineBoundDirectIdentity, recentReader = readLocalLineRecentChats, pollReader = readOpenLinePollState, clientStatus = readLineClientStatus, forwardTransaction } = {}) {
+export function createLineExtensions(automation, { ui, now = () => new Date(), fileSystem = fs, localReader = readLocalLineMessages, localIdentityReader = readLocalLineChatIdentity, boundIdentityReader = readLocalLineBoundDirectIdentity, recentReader = readLocalLineRecentChats, candidateReader = readLocalLineChatCandidates, pollReader = readOpenLinePollState, clientStatus = readLineClientStatus, forwardTransaction } = {}) {
   ui ??= typeof automation?.getVerifiedUi === 'function'
     ? automation.getVerifiedUi()
     : new LineUi({ automation });
@@ -349,6 +367,7 @@ export function createLineExtensions(automation, { ui, now = () => new Date(), f
 
   const handlers = {
     check_line_send_target: args => checkLineSendTarget(args, { readIdentity: localIdentityReader, readBoundIdentity:boundIdentityReader, now }),
+    confirm_line_send_context: async args => ui.confirmSendContext(args),
     prepare_line_send_target: async args => {
       try { return await ui.prepareSendTarget(args); }
       catch(error) { throw new LineToolError(error?.code || 'LINE_PREPARE_FAILED',
@@ -444,6 +463,7 @@ export function createLineExtensions(automation, { ui, now = () => new Date(), f
         localReader: localReader.status === 'fulfilled' ? localReader.value
           : { ok: false, code: 'LINE_CLIENT_STATUS_UNAVAILABLE' } };
     },
+    list_line_chat_candidates: async args => candidateReader(args),
     open_line_chat: async args => ui.openChat(args),
     prepare_line_direct_chat: async args => ui.prepareDirectChat(args),
     prepare_line_group_chat: async args => ui.prepareGroupChat(args),
