@@ -146,3 +146,18 @@
 - `src/extensions/line-forward-ui.mjs`：最後一次就緒檢查與點擊之間隔著寫 journal；期間若對話框變動不會重驗。journal 已先寫入，結果一律標 `UNCERTAIN`，不會自動重送。
 
 審查未涵蓋：實機 LINE Desktop 送出、轉發與 OCR；約 18.6k 行中未逐行讀完的部分（逐行讀過送出／轉發交易、匯出、reader 啟動與清理，其餘定向抽查）。
+
+## 2026-10-24：修補 Dependabot 安全警示（npm）
+
+**決定**：`@modelcontextprotocol/sdk` 由 1.29.0 升到 1.32.0（精確釘版，與 Dependabot PR #3 同一版本），並以 `npm audit fix --package-lock-only` 一併更新 `npm-shrinkwrap.json` 內有修補版的傳遞依賴。未改任何產品程式碼。
+
+| 套件 | 舊 → 新 | 對應 |
+| --- | --- | --- |
+| `@modelcontextprotocol/sdk` | 1.29.0 → 1.32.0 | Dependabot #1（high）、#2、#3（medium）、#4（high） |
+| `zod` | 4.6.2 → 4.6.7 | `npm audit` high（GHSA-mrhx-c7xc-m3w5），無 Dependabot 警示 |
+| `proxy-addr` | 2.0.7 → 2.0.8 | `npm audit` critical（GHSA-jqcg-44mw-7w3h） |
+| `hono`、`ip-address`、`body-parser`、`qs`、`fast-uri` | 見 lock diff | `npm audit` 中度以上，同批修補版 |
+
+**驗證**：`npm ci --ignore-scripts` 後 `npm audit` 為 0 個弱點；`npm test` 381 項全過。lock diff 無新增套件、無新增 install script、所有 `resolved` 皆為 `registry.npmjs.org`。
+
+**未涵蓋**：`requirements.txt`／`requirements-dev.txt` 是下限而非釘版，沒有 Python 弱點掃描工具（`pip-audit`）可用，所以 Python 端未做弱點掃描；Dependabot 也沒有 pip 警示。
