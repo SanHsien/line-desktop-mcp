@@ -27,7 +27,9 @@ pwsh -NoProfile -File tools\bootstrap_dev.ps1
 
 指定聊天室與日期，讓 AI 一起整理文字和可用的快取圖片，掌握進度、附件線索與待辦。圖片由 MCP 提供給支援影像的模型判讀；縮圖、原圖和缺失狀態都有標示。
 
-[v3.3.5 五語更新說明](docs/releases/README.md) · [安裝指南](docs/quickstart-windows.md) · [工具與限制](docs/windows-extensions.md)
+[v3.3.8 更新說明](docs/releases/README.md) · [安裝指南](docs/quickstart-windows.md) · [工具與限制](docs/windows-extensions.md)
+
+**v3.3.8 — 聊天室選取與引用核對修正：** 列出確切名稱候選，以聊天室／帳號參照開啟唯一既有直聊；減少草稿核對的重複快照，修正獨立視窗引用確認，補上收回的實測操作指引。[更新說明](docs/releases/v3.3.8.zh-TW.md)
 
 **v3.3.5 — 混合搜尋 OCR 修正：** 分類各自裁切、補足標題範圍與 OCR 白邊，避免唯一聊天室因分類標頭漏讀被拒絕；完整名稱與身分核對不變。[更新說明](docs/releases/v3.3.5.zh-TW.md)
 

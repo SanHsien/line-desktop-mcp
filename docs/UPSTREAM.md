@@ -92,3 +92,11 @@ Baseline 代表「已審查」，不代表「全部已合併」。
 - Issue：`#1` 由上游 v3.0.1 的串流快照解決（上游 issue 仍 OPEN）。
 
 上游 `main` 仍停在 `555c7c7`，水位不變：commit `555c7c72a7f52e86bce26513fd7214b489614aed`、PR #2、issue #1。
+
+## 2026-10-24：採用 `097324e`（v3.3.8）
+
+- Commit：`555c7c7..097324e` 3 筆（v3.3.6–v3.3.8）以補丁採用，壓成單一 commit；內容、衝突與驗證見 [`DECISIONS.md`](DECISIONS.md) 同日條目。
+- PR：無高於 #2 的新項目。
+- Issue：無高於 #1 的新項目。
+
+水位已寫入 [`tools/upstream_baseline.json`](../tools/upstream_baseline.json)：commit `097324e678e6dba60a4c4e187054f8b7397a9100`、PR #2、issue #1。

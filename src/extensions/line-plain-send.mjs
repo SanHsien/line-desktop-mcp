@@ -3,8 +3,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { homedir } from 'node:os';
 import { LineToolError } from './line-runtime.mjs';
-import { readLocalLineMessages, readLocalLineChatIdentity, readLocalLineBoundDirectMessages, runReaderProcess } from './line-local-reader.mjs';
-import { hasBoundDirectRefs, boundDirectScope, inspectBoundDirect } from './line-bound-direct.mjs';
+import { readLocalLineMessages, readLocalLineChatIdentity, readLocalLineBoundDirectMessages, readLocalLineBoundDirectIdentity, runReaderProcess } from './line-local-reader.mjs';
+import { hasBoundDirectRefs, boundDirectScope, confirmedBoundDirectScope, inspectBoundDirect } from './line-bound-direct.mjs';
 import { mainLineWindow, snapshot, elementTarget } from './cua-line-client.mjs';
 import { purepngDimensions } from './line-ocr.mjs';
 import { navigationOcrRegion, searchResultsOcrRegion, singleDirectSearchOcrRegion, mixedDirectSearchOcrRegions,
@@ -53,15 +53,34 @@ export function matchReceipt(before, after, message, startedAt) {
   return matches.length === 1 ? matches[0] : null;
 }
 
-export async function readPlainIdentity({chatName}, {readIdentity=readLocalLineChatIdentity}={}) {
+export async function readPlainIdentity({chatName,chatType='auto',expectedChatRef,expectedOwnSenderRef}, {
+  readIdentity=readLocalLineChatIdentity, readBoundIdentity=readLocalLineBoundDirectIdentity,
+}={}) {
+  const bound=expectedChatRef!==undefined || expectedOwnSenderRef!==undefined;
+  if(!['auto','direct','group'].includes(chatType)
+    || (bound && (!['direct','group'].includes(chatType)
+      || !/^chat:[0-9a-f]{24}$/u.test(expectedChatRef??'')
+      || !/^sender:[0-9a-f]{24}$/u.test(expectedOwnSenderRef??''))))
+    fail('LINE_INVALID_ARGUMENT','Selected chat opening requires paired chat/account references and an explicit chat type.');
   const date = day(Date.now());
-  const result = await readIdentity({chatName, chatType:'auto', dateFrom:date, dateTo:date,
-    requireUniqueName:true},
+  const pairedDirect=bound && chatType==='direct';
+  const read=pairedDirect?readBoundIdentity:readIdentity;
+  const result = await read({chatName, chatType, dateFrom:date, dateTo:date,
+    ...(pairedDirect?{messageLimit:1,mediaMode:'metadata'}:{requireUniqueName:true}),
+    ...(bound?{expectedChatRef,expectedOwnSenderRef}:{})},
     {runProcess:scope=>runReaderProcess(scope,{timeoutMs:5000})});
   if(!['direct','group'].includes(result.chatIdentity?.kind)
     || !/^chat:[0-9a-f]{24}$/u.test(result.chatRef ?? ''))
     fail('LINE_CHAT_IDENTITY_UNVERIFIED','No unique local chat identity was resolved.');
-  return Object.freeze({chatRef:result.chatRef,kind:result.chatIdentity.kind});
+  if(bound && result.chatRef!==expectedChatRef) fail('CHAT_IDENTITY_CHANGED','The selected chat identity changed.');
+  if(bound && result.ownSenderRef!==expectedOwnSenderRef) fail('CHAT_ACCOUNT_CHANGED','The selected LINE account changed.');
+  if(chatType!=='auto' && result.chatIdentity.kind!==chatType) fail('CHAT_TYPE_MISMATCH','The selected chat type changed.');
+  if(pairedDirect && (result.chatIdentity.knownNameUnique!==true
+    || typeof result.chatIdentity.globalNameUnique!=='boolean'))
+    fail('LINE_CHAT_IDENTITY_UNVERIFIED','The selected existing direct chat was not uniquely resolved.');
+  return Object.freeze({chatRef:result.chatRef,kind:result.chatIdentity.kind,
+    ...(bound?{ownSenderRef:result.ownSenderRef,
+      requiresSendContext:pairedDirect && !result.chatIdentity.globalNameUnique}:{})});
 }
 
 export async function openExactChat(ui, api, chatName, chatType, check) {
@@ -185,7 +204,7 @@ export async function sendPlainText(ui,{chatName,message,chatType,autoSend,idemp
   readMessages ??= pairedDirect ? readLocalLineBoundDirectMessages : readLocalLineMessages;
   const check=()=>{if(Date.now()>=deadline) fail('LINE_SEND_TIMEOUT','LINE text operation reached its deadline.');};
   const read=scope=>{check();return readMessages(scope,{runProcess:s=>runReaderProcess(s,{timeoutMs:Math.max(1,Math.min(5000,deadline-Date.now()))})});};
-  const scope=pairedDirect ? boundDirectScope({chatName,chatType,expectedChatRef,expectedOwnSenderRef},startedAt)
+  const scope=pairedDirect ? confirmedBoundDirectScope(ui,{chatName,chatType,expectedChatRef,expectedOwnSenderRef},startedAt)
     : {chatName,chatType,dateFrom:day(startedAt),dateTo:day(startedAt),messageLimit:50,mediaMode:'metadata'};
   // Resolve both kinds to avoid a detached same-title window identifying another chat.
   const before=await read({...scope,...(pairedDirect?{}:{requireUniqueName:true}),
@@ -200,7 +219,7 @@ export async function sendPlainText(ui,{chatName,message,chatType,autoSend,idemp
   const needsContext=pairedDirect && !before.chatIdentity.globalNameUnique;
   const boundScope={...scope,expectedChatRef:before.chatRef,expectedOwnSenderRef:before.ownSenderRef};
   const currentReceiptScope=olderScope=>pairedDirect
-    ? boundDirectScope({chatName,chatType,expectedChatRef:before.chatRef,expectedOwnSenderRef:before.ownSenderRef})
+    ? {...boundScope,dateFrom:[boundScope.dateFrom,day(Date.now()-2*86400000)].sort().at(-1),dateTo:day(Date.now())}
     : {...olderScope,expectedChatRef:before.chatRef,expectedOwnSenderRef:before.ownSenderRef,dateTo:day(Date.now())};
   const file=path.join(journalRoot(),`${digest(`${before.ownSenderRef}|${before.chatRef}|${idempotencyKey??message}`)}.json`);
   const old=autoSend?await readRecord(file):null;
@@ -241,7 +260,7 @@ export async function sendPlainText(ui,{chatName,message,chatType,autoSend,idemp
         if(name==='press_key' && args.key==='return') returnAttempted=true;
         return rawApi.call(name,args);
       }};
-      const context=needsContext ? await inspectBoundDirect(ui,api,boundScope,before,()=>read(boundScope),checkInput) : null;
+      const context=needsContext ? await inspectBoundDirect(ui,api,boundScope,before,()=>read(boundScope),checkInput,{consumeVisual:true}) : null;
       const inspected=context?.inspected ?? await openExactChat(ui,api,chatName,chatType,check);
       const guard=context?.guard ?? createChatGuard(chatName,inspected,ui.ocr,ui.visual);
       const options=context?.options ?? composerOptions(inspected,guard);
@@ -296,7 +315,9 @@ export async function sendPlainText(ui,{chatName,message,chatType,autoSend,idemp
     if(autoSend)try { await writeRecord(file,record); } catch { journalPersisted=false; }
     throw new LineToolError(error.code??(returnAttempted?'LINE_SEND_UNCERTAIN':'LINE_SEND_FAILED'),error.message,{status:record.status,
       operationId:record.operationId,sendDispatched:returnAttempted?null:false,draftMayBeStaged:draftAttempted,journalPersisted,
-      operationMayHaveCompleted:returnAttempted,elapsedMs:Date.now()-startedAt});
+      operationMayHaveCompleted:returnAttempted,elapsedMs:Date.now()-startedAt,
+      ...(/^(?:LINE|CHAT)_[A-Z0-9_]+$/u.test(error.details?.previousCode ?? '')
+        ? {previousCode:error.details.previousCode} : {})});
   }
 }
 

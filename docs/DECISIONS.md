@@ -161,3 +161,35 @@
 **驗證**：`npm ci --ignore-scripts` 後 `npm audit` 為 0 個弱點；`npm test` 381 項全過。lock diff 無新增套件、無新增 install script、所有 `resolved` 皆為 `registry.npmjs.org`。
 
 **未涵蓋**：`requirements.txt`／`requirements-dev.txt` 是下限而非釘版，沒有 Python 弱點掃描工具（`pip-audit`）可用，所以 Python 端未做弱點掃描；Dependabot 也沒有 pip 警示。
+
+## 2026-10-24：採用上游 v3.3.6–v3.3.8（`555c7c7..097324e`）
+
+**決定**：採用上游 3 個 commit（`feeaa16`、`0ba37bd`、`097324e`，v3.3.6–v3.3.8，上游最後提交 2026-10-14），以 `git diff 555c7c7 097324e | git apply --3way` 套進 fork，壓成單一 commit；`reviewed_through` 推進至 `097324e`。比照 2026-10-03 維護者「上游待採用全部處理」的指示。
+
+**內容**（41 檔，+1,263／−116；`src/` 15 檔）：
+
+- 新工具 `list_line_chat_candidates`（唯讀，同名候選最多 20 筆，含未開啟聯絡人與不透明 chat／account ref）。
+- 新工具 `confirm_line_send_context`：`prepare_line_send_target` 在 OCR 不完整時回 `PENDING_VISUAL_CONTEXT`＋一次性 token（90 秒），呼叫端看圖回報日期與最新兩則訊息後才 `READY`；送出前仍重驗本機頁面、視窗、像素與空白輸入框，並消耗該確認。
+- `open_line_chat` 可帶成對 chat／account ref 開啟唯一既有直聊；多行草稿撐高輸入框時允許同一垂直平移的上下文重驗；收回訊息的 guided UI 指引補強。
+- 新檔 `line-date-capsule.mjs`／`locate-line-date-capsule.ps1`（日期膠囊像素判定，只寫自建 `mkdtemp` 目錄）、`line-ui-metrics.mjs`；支援 LINE 26.5 client build。
+- 版本 3.3.5 → 3.3.8；啟用擴充時工具數 33 → 35、capability 38 → 39。
+
+**衝突**：只有 `README.md` 開頭的版本列（fork 的語言列已在上方），保留 fork 開頭、採上游 v3.3.8 段落。fork 自訂的跨程序操作鎖（`line-operation-lock.mjs`、`hold-line-operation-lock.ps1`、`test/line-operation-lock.test.mjs`）上游未改，仍為 fork 版。兩邊都改過的 `line_scoped_core.py`、`test/line-extensions.test.mjs` 自動合併成功。
+
+**fork 自有文件同步**：`README.en.md`、`docs/README.en.md`、`docs/MIGRATING.md`、`docs/README.{ja,th,id}.md` 的「fork 帶有上游 vX 內容」與工具數改為 v3.3.8／35。上游翻譯版（ja／th／id）的發行說明連結仍停在 v3.3.5，屬上游內容，不另行翻譯。
+
+**審查**：逐行讀過 `line-bound-direct.mjs`、`line-plain-send.mjs`、`line-extensions.mjs`、`line-capabilities.mjs`、`line-date-capsule.mjs`、`locate-line-date-capsule.ps1`。送出路徑只增加檢查（確認後的範圍若被改動回 `LINE_BOUND_CONTEXT_CHANGED`、過期回 `LINE_VISUAL_CONTEXT_EXPIRED`、token 不論成敗一律先消耗），沒有放寬既有身分、草稿或冪等檢查。
+
+**驗證**：雲端 Linux 容器（Node 22、Python 3.13）只能跑非 Windows 部分：`npm test` 409 項中 382 pass／20 fail，失敗的 20 項與採用前完全相同（PowerShell 操作鎖 helper 與 reader 子程序清理，Linux 無法執行），上游新增 28 項全過；Python 測試的錯誤全是 `ctypes.WinDLL`／`LOCALAPPDATA` 缺失。完整驗證以 Windows CI 為準。
+
+**fork 差異（同步上游時要保留）**：`src/extensions/line-date-capsule.mjs` 的 `locateLineDateCapsule()` 多一個 `{timeoutMs}` 選項（預設仍為上游的 5000），`test/line-date-capsule.test.mjs` 傳 30000。PR CI 的 py3.11 矩陣上，Windows PowerShell 冷啟動加逐像素 `GetPixel` 在 5038 ms 被殺；同一 commit 其他矩陣通過。產品預設值不變；若實機也常逾時（`LINE_BOUND_CONTEXT_UNVERIFIED` 後找不到日期列），再評估調高預設或改用 `LockBits`。
+
+**未驗證**：視覺上下文確認、帶 ref 開啟聊天室、多行草稿重驗的實機行為（需已登入的 LINE Desktop）。
+
+**PR／Issue**：上游 PR 水位 #2、issue 水位 #1，無新項目。
+
+## 2026-10-24：`ruff` 0.17.2 新鮮度紅燈以延後處理
+
+**決定**：`requirements-dev.txt` 維持 `ruff>=0.16`，在 `.github/dependency-deferrals.json` 記 `ruff` 延後至 `0.17.2`。
+
+**理由**：宣告是相容性承諾；`ruff>=0.16` 已會安裝 0.17.x，維護 gate（`ruff check --select E9,F --target-version py310 tools`）在 0.17.2 為綠，沒有需要排除 0.16 的理由，所以不調高下限。PyPI 出現比 0.17.2 更新的版本時會再次報紅。

@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import { configuredCuaDriverPath, LineToolError, runtimeImport, runtimeRequire } from './line-runtime.mjs';
+import { countLineUiMetric, startLineUiPhase } from './line-ui-metrics.mjs';
 
 const CUA_INPUT_TOOLS = new Set([
   'click', 'double_click', 'right_click', 'drag', 'scroll', 'move_cursor',
@@ -31,9 +32,16 @@ export async function withCuaClient(callback, { deadline } = {}) {
   let failure;
   let inputAttempted = false;
   try {
-    await client.connect(transport, { timeout: remaining(20000) });
+    const connectOptions = { timeout: remaining(20000) };
+    const stopConnect = startLineUiPhase('cuaConnect');
+    countLineUiMetric('processStartAttempts');
+    try { await client.connect(transport, connectOptions); }
+    finally { stopConnect(); }
     connected = true;
-    const listed = await client.listTools({}, {timeout:remaining(20000)});
+    const stopTools = startLineUiPhase('cuaTools');
+    let listed;
+    try { listed = await client.listTools({}, {timeout:remaining(20000)}); }
+    finally { stopTools(); }
     const inputValidator = createCuaInputValidator(listed?.tools, { ajv });
     const tools = inputValidator.tools;
     const api = {
@@ -43,7 +51,9 @@ export async function withCuaClient(callback, { deadline } = {}) {
         if (!tools.has(name)) throw new LineToolError('LINE_UI_CAPABILITY_UNAVAILABLE', `The active CUA runtime does not advertise ${name}.`);
         inputValidator.validate(name, args);
         if (CUA_INPUT_TOOLS.has(name)) inputAttempted = true;
-        const result = await callCuaTool(client, name, args, {timeout:remaining(25000)});
+        const invocation = cuaInputInvocation(name,args,client.getServerVersion(),tools);
+        inputValidator.validate(invocation.name,invocation.args);
+        const result = await callCuaTool(client, invocation.name, invocation.args, {timeout:remaining(25000)});
         const data = unwrapCua(result);
         if (result.isError) {
           throw new LineToolError('LINE_UI_ACTION_REFUSED', `CUA ${name}: ${data.message || data.error || data.code || 'operation refused'}`, {
@@ -62,7 +72,9 @@ export async function withCuaClient(callback, { deadline } = {}) {
     throw error;
   } finally {
     // Closing the public transport ends this operation's CUA control session.
-    await closeCuaSession(() => connected ? client.close() : transport.close(), { failure, inputAttempted });
+    const stopClose = startLineUiPhase('cuaClose');
+    try { await closeCuaSession(() => connected ? client.close() : transport.close(), { failure, inputAttempted }); }
+    finally { stopClose(); }
   }
 }
 
@@ -111,6 +123,7 @@ export async function closeCuaSession(close, { failure, inputAttempted = false }
  * The fixed errors intentionally omit transport/backend text and arguments.
  */
 export async function callCuaTool(client, name, args, {timeout=25000} = {}) {
+  const stopCall = startLineUiPhase('cuaCall');
   try {
     return await client.callTool({ name, arguments: args }, undefined, { timeout });
   } catch {
@@ -126,7 +139,7 @@ export async function callCuaTool(client, name, args, {timeout=25000} = {}) {
       `CUA ${name} could not complete.`,
       { operationMayHaveCompleted: false },
     );
-  }
+  } finally { stopCall(); }
 }
 
 function isCuaInputTool(name) {
@@ -312,13 +325,17 @@ export function hasMainLineShell(window, state) {
 }
 
 export async function snapshot(api, target, { screenshot = false, query, maxElements = 800 } = {}) {
-  const result = await api.call('get_window_state', {
-    pid: target.pid, window_id: target.window_id,
-    include_screenshot: screenshot, max_elements: maxElements, max_depth: 25,
-    ...(query ? { query } : {}),
-  });
-  if (!Array.isArray(result.elements)) throw new LineToolError('LINE_UI_TREE_UNAVAILABLE', 'LINE did not expose a structured accessibility tree. Continue using visual Computer Use.');
-  return result;
+  const stopSnapshot = startLineUiPhase('snapshot');
+  if (screenshot) countLineUiMetric('screenshotRequests');
+  try {
+    const result = await api.call('get_window_state', {
+      pid: target.pid, window_id: target.window_id,
+      include_screenshot: screenshot, max_elements: maxElements, max_depth: 25,
+      ...(query ? { query } : {}),
+    });
+    if (!Array.isArray(result.elements)) throw new LineToolError('LINE_UI_TREE_UNAVAILABLE', 'LINE did not expose a structured accessibility tree. Continue using visual Computer Use.');
+    return result;
+  } finally { stopSnapshot(); }
 }
 
 export function elementTarget(target, state, element) {
@@ -340,4 +357,12 @@ export function uniqueElement(state, predicate, label) {
 
 export function exactLabel(labels, roles) {
   return item => labels.includes(item.label) && (!roles || roles.some(role => String(item.role).toLowerCase().includes(role.toLowerCase())));
+}
+
+/** CUA 0.28.2's legacy right_click alias ignores exact-window delivery.
+ * Its advertised click(button:right) interface preserves that contract. */
+export function cuaInputInvocation(name,args,version,tools,platform=process.platform) {
+  if(platform!=='win32'||name!=='right_click'||version?.name!=='cua-driver'||version.version!=='0.28.2')return {name,args};
+  if(!tools.has('click'))throw new LineToolError('LINE_UI_CAPABILITY_UNAVAILABLE','This CUA build requires its exact-window click interface for right-click.');
+  return {name:'click',args:{...args,button:'right'}};
 }
