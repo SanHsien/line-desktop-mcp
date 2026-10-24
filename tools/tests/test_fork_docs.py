@@ -30,7 +30,6 @@ def test_required_overlay_files_exist() -> None:
         "FORK.md",
         "NOTICE.md",
         "AGENTS.md",
-        "GEMINI.md",
         "CONTRIBUTING.md",
         "SECURITY.md",
         "REVIEW.md",

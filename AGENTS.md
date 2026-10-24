@@ -28,6 +28,7 @@
 - 測試套件：
   - Node.js 測試：`test/*.test.mjs`（`npm test`）。
   - Python 測試：`test/python/test_*.py`（`python -m unittest discover`）。
+- 產品程式（`src/`）與測試（`test/`）以上游為準。
 - `tools/`：fork 維護工具（Windows gate、上游檢查、相對連結檢查、依賴新鮮度）。
 - `tools/tests/`：維護契約測試。獨立於產品測試目錄。
 
