@@ -1,4 +1,9 @@
 {
-  "deferrals": {},
+  "deferrals": {
+    "ruff": {
+      "deferredLatest": "0.17.2",
+      "reason": "ruff>=0.16 already installs 0.17.x; E9+F gate passes on 0.17.2, so the compatibility floor stays at 0.16."
+    }
+  },
   "notes": "Record deferred dependency version bumps here when keeping an existing major/minor line is intentional."
 }
