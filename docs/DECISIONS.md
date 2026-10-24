@@ -185,3 +185,9 @@
 **未驗證**：視覺上下文確認、帶 ref 開啟聊天室、多行草稿重驗的實機行為（需已登入的 LINE Desktop）。
 
 **PR／Issue**：上游 PR 水位 #2、issue 水位 #1，無新項目。
+
+## 2026-10-24：`ruff` 下限 0.16 → 0.17
+
+**決定**：`requirements-dev.txt` 改為 `ruff>=0.17`。每月依賴新鮮度檢查回報 `ruff` 0.17.2 為 OUTDATED。
+
+**理由**：維護 gate 只跑 `ruff check --select E9,F --target-version py310 tools`；以 ruff 0.17.2 實跑結果為綠，規則集沒有因升版改變結果，沒有需要 hold 或延後的理由。
