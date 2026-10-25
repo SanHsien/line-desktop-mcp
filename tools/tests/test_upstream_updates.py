@@ -96,3 +96,9 @@ def test_strict_passes_when_every_axis_was_queried_and_is_empty(monkeypatch, tmp
     _stub_main(monkeypatch, tmp_path, prs=[], issues=[])
     assert checker.main() == 0
 
+
+
+def test_repo_names_containing_dots_still_resolve_to_a_slug():
+    assert checker.parse_repo_slug("https://github.com/o/foo.js.git") == "o/foo.js"
+    assert checker.parse_repo_slug("git@github.com:o/foo.js") == "o/foo.js"
+    assert checker.parse_repo_slug("https://github.com/o/product.git") == "o/product"

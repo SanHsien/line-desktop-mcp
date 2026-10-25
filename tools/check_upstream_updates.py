@@ -116,7 +116,7 @@ def collect_new_commits(baseline: dict, repo_dir: Path, ref: str) -> list[dict]:
 
 
 def parse_repo_slug(repo_url: str) -> str | None:
-    match = re.search(r"github\.com[/:]([^/]+/[^/.]+?)(?:\.git)?$", repo_url)
+    match = re.search(r"github\.com[/:]([^/]+/[^/]+?)(?:\.git)?/?$", repo_url)
     return match.group(1) if match else None
 
 
