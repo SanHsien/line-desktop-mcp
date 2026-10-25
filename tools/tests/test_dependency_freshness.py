@@ -57,3 +57,25 @@ def test_a_live_deferral_covers_the_row_and_says_what_it_was_reviewed_against(
         deferrals={"pytest": ("9.1", "reviewed 2026-09; wait for the 9.x line to settle")},
     )
     assert checker.needs_review(rows[0]) is False
+
+
+def test_a_failed_pypi_lookup_is_not_reported_as_fresh(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PyPI down or a typo'd name must not turn into a silent green."""
+    monkeypatch.setattr(checker, "fetch_pypi_version", lambda name: None)
+    packages = checker.parse_requirements("pytest>=8.3\n", "requirements-dev.txt")
+    rows = checker.collect_status(packages, deferrals={})
+    assert checker.needs_review(rows[0]) is True
+    assert "fresh" not in checker.render_markdown(rows).split("|---|---|---|---|---|")[1]
+
+
+def test_a_failed_lookup_on_a_held_row_stays_quiet(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(checker, "fetch_pypi_version", lambda name: None)
+    packages = checker.parse_requirements(
+        "Pillow>=10.0.0  # freshness-hold: upstream floor\n", "requirements.txt"
+    )
+    rows = checker.collect_status(packages, deferrals={})
+    assert checker.needs_review(rows[0]) is False

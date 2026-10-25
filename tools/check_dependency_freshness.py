@@ -158,9 +158,12 @@ def collect_status(packages: list[dict], deferrals: dict[str, tuple[str, str]]) 
 
 
 def needs_review(row: dict) -> bool:
-    if not row["outdated"]:
-        return False
     if row["hold"]:
+        return False
+    if row["latest"] == "unknown":
+        # No PyPI answer means freshness was not verified, which is not "fresh".
+        return True
+    if not row["outdated"]:
         return False
     if row["deferral"]:
         deferred_version, _ = row["deferral"]
@@ -183,7 +186,7 @@ def render_markdown(rows: list[dict]) -> str:
         declared = row["declared_floor"] or row["raw_spec"] or "any"
         latest = row["latest"]
         if needs_review(row):
-            status = "**OUTDATED**"
+            status = "**UNKNOWN (PyPI lookup failed)**" if latest == "unknown" else "**OUTDATED**"
             attention_count += 1
         elif row["hold"]:
             status = f"HELD: {row['hold']}"
@@ -196,7 +199,7 @@ def render_markdown(rows: list[dict]) -> str:
         lines.append(f"| `{name}` | `{file}` | `{declared}` | `{latest}` | {status} |")
     lines.append("")
     if attention_count > 0:
-        lines.append(f"**Attention needed**: {attention_count} dependencies are behind and require review.\n")
+        lines.append(f"**Attention needed**: {attention_count} dependencies are behind or could not be checked and require review.\n")
     else:
         lines.append("All declared dependencies are fresh, held, or deferred.\n")
     return "\n".join(lines)
