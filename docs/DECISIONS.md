@@ -20,7 +20,7 @@
 
 ## 2026-09-12：上游檢查涵蓋 Commit、PR 與 Issue 三面向
 
-**決定**：`check_upstream_updates.py` 以 `--state all` 收集上游 PR 與 Issue，並追蹤 Commit SHA。`gh` 失敗時 fail closed（exit 2）。
+**決定**：`check_upstream_updates.py` 以 `--state all` 收集上游 PR 與 Issue，並追蹤 Commit SHA。`--strict` 下 `gh` 查詢失敗時 fail closed（exit 1，與有新變更同為紅燈）。
 
 **理由**：未合併即關閉的 PR 與待處理的 Issue 同樣可能揭露重要缺陷或需求。排程報告必須確保「未檢查」與「沒有新變更」截然分明。
 
