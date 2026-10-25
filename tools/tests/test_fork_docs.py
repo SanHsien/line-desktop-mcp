@@ -133,3 +133,11 @@ def test_baseline_matches_decisions_record() -> None:
     assert baseline["reviewed_date"] in decisions
     assert "b66fad4" in upstream
     assert "bensonmaxai/line-desktop-mcp" in decisions
+
+
+def test_link_with_a_markdown_title_is_not_reported_missing(tmp_path, monkeypatch) -> None:
+    (tmp_path / "a.md").write_text("x", encoding="utf-8")
+    doc = tmp_path / "doc.md"
+    doc.write_text('[a](a.md "Title") and [b](<a.md> \'T\')\n', encoding="utf-8")
+    monkeypatch.setattr(check_links, "ROOT", tmp_path)
+    assert check_links.check_document(doc) == []
