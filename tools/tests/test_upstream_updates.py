@@ -70,3 +70,29 @@ def test_failure_to_reach_gh_is_not_reported_as_quiet(monkeypatch):
 def test_non_github_repo_leaves_tickets_unqueried():
     baseline = {**BASELINE, "repo": "https://gitlab.example.com/team/product.git"}
     assert checker.collect_new_tickets(baseline, "pr") is None
+
+
+def _stub_main(monkeypatch, tmp_path, prs, issues):
+    baseline_path = tmp_path / "baseline.json"
+    baseline_path.write_text(json.dumps(BASELINE), encoding="utf-8")
+    monkeypatch.setattr(checker, "fetch_upstream", lambda baseline, repo: "ref")
+    monkeypatch.setattr(checker, "collect_new_commits", lambda *a: [])
+    monkeypatch.setattr(
+        checker, "collect_new_tickets", lambda baseline, kind: prs if kind == "pr" else issues
+    )
+    monkeypatch.setattr(
+        sys, "argv",
+        ["x", "--strict", "--baseline", str(baseline_path), "--output", str(tmp_path / "r.md")],
+    )
+
+
+def test_strict_fails_when_github_could_not_be_queried(monkeypatch, tmp_path):
+    """The workflow promises 'or the check failed'; an unqueried axis is not quiet."""
+    _stub_main(monkeypatch, tmp_path, prs=None, issues=[])
+    assert checker.main() == 1
+
+
+def test_strict_passes_when_every_axis_was_queried_and_is_empty(monkeypatch, tmp_path):
+    _stub_main(monkeypatch, tmp_path, prs=[], issues=[])
+    assert checker.main() == 0
+

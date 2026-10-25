@@ -242,8 +242,12 @@ def main() -> int:
     args.output.write_text(report, encoding="utf-8")
     print(report)
 
-    if args.strict and (commits or (prs and len(prs) > 0) or (issues and len(issues) > 0)):
-        return 1
+    if args.strict:
+        # An axis that could not be queried is unreviewed, not quiet.
+        if prs is None or issues is None:
+            return 1
+        if commits or prs or issues:
+            return 1
     return 0
 
 
