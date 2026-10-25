@@ -18,7 +18,7 @@ v3.3.5 reads each mixed-search category from its own UIA row and a 35px title cr
 
 Node.js 24 LTS or newer is required. The server exposes local **stdio only**; no HTTP/REST entry point, server listener, MCPB bundle or startup installer is included. Former HTTP CLI flags fail before startup. Configuration is inherited explicitly from the MCP client; a cwd `.env` is not automatically loaded. Distribution uses a GitHub source tag and attached `.tgz`; the npm registry is not updated by this release.
 
-Windows with `LINE_MCP_EXTENSIONS=1` lists 33 active tools. Five legacy aliases remain callable but hidden from the list, for 38 implemented descriptors. Without extensions, five default descriptors remain. Every Windows named-chat GUI path, including the defaults, requires configured CUA and the Python/SQLite3MC local reader. macOS lists the five defaults but refuses legacy reads/sends before automation with `LINE_CHAT_VERIFICATION_UNAVAILABLE`. The Windows reader is not a macOS feature; see [migration notes](MIGRATING.md#upgrading-to-v332).
+Windows with `LINE_MCP_EXTENSIONS=1` lists 35 active tools. Five legacy aliases remain callable but hidden from the list, for 40 implemented descriptors. Without extensions, five default descriptors remain. Every Windows named-chat GUI path, including the defaults, requires configured CUA and the Python/SQLite3MC local reader. macOS lists the five defaults but refuses legacy reads/sends before automation with `LINE_CHAT_VERIFICATION_UNAVAILABLE`. The Windows reader is not a macOS feature; see [migration notes](MIGRATING.md#upgrading-to-v332).
 
 ## Context with images
 

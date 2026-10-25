@@ -20,7 +20,7 @@ from npm: it is not this fork.
 | What you want to use | Requirement |
 | --- | --- |
 | Base MCP server | Node.js 24 LTS or newer. The package requires Node >= 24.0.0; v3.3.5 pins @modelcontextprotocol/sdk 1.29.0. |
-| Windows extension catalogue | Set `LINE_MCP_EXTENSIONS=1`. This lists 33 active Windows tools; five legacy aliases remain callable but hidden (38 implemented descriptors). Without that exact value, five default descriptors remain. macOS also lists those five defaults. |
+| Windows extension catalogue | Set `LINE_MCP_EXTENSIONS=1`. This lists 35 active Windows tools; five legacy aliases remain callable but hidden (40 implemented descriptors). Without that exact value, five default descriptors remain. macOS also lists those five defaults. |
 | Local text and media context | Windows x64, a signed-in LINE Desktop process whose build is in the shipped allowlist, a 64-bit Python, both required Python packages, and the pinned SQLite3MC DLL described below. LINE Desktop 26.4.2.3957 was the tested build. |
 | Named-chat GUI tools | Every Windows named-chat GUI path, including the five defaults, requires a separately installed CUA Driver plus the local-reader Python/DLL prerequisites. AutoHotkey v2 is required only by legacy GUI helper paths; local Windows OCR is required only when the selected path uses it. |
 
@@ -257,7 +257,7 @@ it refreshes the schema. The first safe call is:
 get_line_capabilities({})
 ~~~
 
-On Windows with `LINE_MCP_EXTENSIONS=1`, expect `toolCount: 33`. This call
+On Windows with `LINE_MCP_EXTENSIONS=1`, expect `toolCount: 35`. This call
 lists bridge capabilities only; it does not read a chat, inspect media, operate
 LINE, or send anything.
 

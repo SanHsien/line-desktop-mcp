@@ -86,8 +86,8 @@ v3.2.0 的 `get_line_chat_messages`、`search_line_chat_messages`、
 ## 工具模式與能力範圍
 
 在 Windows 把 `LINE_MCP_EXTENSIONS=1` 設為精確值 `1` 時，MCP 提供
-**33 個列出的工具**；另有 5 個舊別名仍可呼叫但不列出，總共實作
-38 個 descriptor。沒有這個值時仍列出 5 個預設 descriptor；
+**35 個列出的工具**；另有 5 個舊別名仍可呼叫但不列出，總共實作
+40 個 descriptor。沒有這個值時仍列出 5 個預設 descriptor；
 macOS 也列出這五個預設 descriptor。
 
 v3.0.0 要求 Windows 所有指定聊天室的 GUI 路徑（含預設五工具）同時設定 CUA

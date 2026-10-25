@@ -31,7 +31,7 @@ Choose a chat and date range. Let your AI assistant organize the conversation to
 
 **LINE Agent MCP**, the Windows community edition maintained by [bensonmaxai](https://github.com/bensonmaxai/line-desktop-mcp), based on [Geoffrey Wang's original project](https://github.com/dtwang/line-desktop-mcp). It connects a local MCP client to a signed-in LINE Desktop. Codex is our everyday client; other local MCP clients can connect too. This project is not affiliated with LINE.
 
-Set `LINE_MCP_EXTENSIONS=1` on Windows for **33 listed active tools**, with **five callable but hidden legacy aliases**. Without the flag, **five tools** are listed. macOS lists the same five names, but reads and sends are unavailable in this release.
+Set `LINE_MCP_EXTENSIONS=1` on Windows for **35 listed active tools**, with **five callable but hidden legacy aliases**. Without the flag, **five tools** are listed. macOS lists the same five names, but reads and sends are unavailable in this release.
 
 **v3.0.0 security update:** Every Windows named-chat GUI operation, including the five defaults, needs CUA and the configured local reader. A private metadata-only check resolves one unique group or existing direct chat without reading messages, then verifies an already-open LINE header. Automatic first-result navigation is disabled. macOS reads/sends refuse before automation. Reply images are cropped to the requested chat; APNG previews contain one frame. GUI history copy restores the prior available clipboard formats when no newer writer intervenes. [Release notes](releases/v3.0.0.en.md) · [Migration](MIGRATING.md#upgrading-to-v300)
 

@@ -52,7 +52,7 @@ pwsh -NoProfile -File tools\bootstrap_dev.ps1
 
 這是 **LINE Agent MCP**，由 [bensonmaxai](https://github.com/bensonmaxai/line-desktop-mcp) 維護的 Windows 社群版，建立在 [dtwang/line-desktop-mcp](https://github.com/dtwang/line-desktop-mcp) 之上。透過本機 MCP 連接已登入的 LINE Desktop，日常以 Codex 使用，也能搭配其他支援本機 MCP 的客戶端。本專案與 LINE 官方無關。
 
-Windows 啟用 `LINE_MCP_EXTENSIONS=1` 後列出 **33 個目前使用的工具**，另有 **5 個可呼叫但不列出的舊別名**。未啟用時列出 **5 個工具**。macOS 也列出五個預設工具，但讀取／發送功能不可用。
+Windows 啟用 `LINE_MCP_EXTENSIONS=1` 後列出 **35 個目前使用的工具**，另有 **5 個可呼叫但不列出的舊別名**。未啟用時列出 **5 個工具**。macOS 也列出五個預設工具，但讀取／發送功能不可用。
 
 **v3.0.0 安全更新：** Windows 所有指定聊天室的 GUI 操作（含預設五工具）都需要 CUA 與本機讀取器。先用不讀訊息的本機中繼資料核對唯一聊天室，再驗證已開啟的 LINE 標頭；不再自動點搜尋第一筆。macOS 讀取／發送目前會在自動化前拒絕。引用截圖限定指定聊天室、APNG 僅輸出首幀；GUI 歷史複製在沒有其他寫入者介入時恢復先前剪貼簿。[更新說明](docs/releases/v3.0.0.zh-TW.md) · [升級與回退](docs/MIGRATING.md#upgrading-to-v300)
 
