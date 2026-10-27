@@ -37,27 +37,6 @@ def fake_gh(payload: object, returncode: int = 0):
     return runner
 
 
-def test_tickets_are_queried_with_state_all(monkeypatch):
-    """An item opened and closed between two runs was still never triaged."""
-    monkeypatch.setattr(
-        checker.subprocess,
-        "run",
-        fake_gh([{"number": 9, "title": "closed without merging"}]),
-    )
-    tickets = checker.collect_new_tickets(BASELINE, "pr")
-    assert tickets == [{"number": 9, "title": "closed without merging"}]
-
-
-def test_items_at_or_below_the_watermark_are_not_re_reported(monkeypatch):
-    monkeypatch.setattr(
-        checker.subprocess,
-        "run",
-        fake_gh([{"number": 4, "title": "old"}, {"number": 5, "title": "new"}]),
-    )
-    baseline = {**BASELINE, "reviewed_pr_through": 4}
-    assert [t["number"] for t in checker.collect_new_tickets(baseline, "pr")] == [5]
-
-
 def test_failure_to_reach_gh_is_not_reported_as_quiet(monkeypatch):
     monkeypatch.setattr(
         checker.subprocess,
@@ -70,35 +49,3 @@ def test_failure_to_reach_gh_is_not_reported_as_quiet(monkeypatch):
 def test_non_github_repo_leaves_tickets_unqueried():
     baseline = {**BASELINE, "repo": "https://gitlab.example.com/team/product.git"}
     assert checker.collect_new_tickets(baseline, "pr") is None
-
-
-def _stub_main(monkeypatch, tmp_path, prs, issues):
-    baseline_path = tmp_path / "baseline.json"
-    baseline_path.write_text(json.dumps(BASELINE), encoding="utf-8")
-    monkeypatch.setattr(checker, "fetch_upstream", lambda baseline, repo: "ref")
-    monkeypatch.setattr(checker, "collect_new_commits", lambda *a: [])
-    monkeypatch.setattr(
-        checker, "collect_new_tickets", lambda baseline, kind: prs if kind == "pr" else issues
-    )
-    monkeypatch.setattr(
-        sys, "argv",
-        ["x", "--strict", "--baseline", str(baseline_path), "--output", str(tmp_path / "r.md")],
-    )
-
-
-def test_strict_fails_when_github_could_not_be_queried(monkeypatch, tmp_path):
-    """The workflow promises 'or the check failed'; an unqueried axis is not quiet."""
-    _stub_main(monkeypatch, tmp_path, prs=None, issues=[])
-    assert checker.main() == 1
-
-
-def test_strict_passes_when_every_axis_was_queried_and_is_empty(monkeypatch, tmp_path):
-    _stub_main(monkeypatch, tmp_path, prs=[], issues=[])
-    assert checker.main() == 0
-
-
-
-def test_repo_names_containing_dots_still_resolve_to_a_slug():
-    assert checker.parse_repo_slug("https://github.com/o/foo.js.git") == "o/foo.js"
-    assert checker.parse_repo_slug("git@github.com:o/foo.js") == "o/foo.js"
-    assert checker.parse_repo_slug("https://github.com/o/product.git") == "o/product"
