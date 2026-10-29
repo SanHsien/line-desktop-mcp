@@ -4,12 +4,12 @@
 > 現況段的數字是 2026-10-29 依 `main` `61d54361e813` 查的快照，開工前先重查 GitHub。
 
 ## 現況
-這是 Windows LINE Desktop 本機對話、圖片上下文與確認後傳送流程的 MCP 維護 fork，已採用上游 v3.3.8（[AGENTS.md:7](AGENTS.md)、[docs/DECISIONS.md:165](docs/DECISIONS.md)）。2026-10-29 `gh` 查詢記錄主要 workflow 最近結果成功、開啟安全告警為 0、無 fork release；issues 停用而未查到 issue（2026-10-29 `gh` 查詢）。新版視覺上下文確認、帶 ref 開啟聊天室與多行草稿重驗尚未取得實機證據（[docs/DECISIONS.md:187](docs/DECISIONS.md)）。
+這是 Windows LINE Desktop 本機對話、圖片上下文與確認後傳送流程的 MCP 維護 fork，已採用上游 v3.3.8（[AGENTS.md:7](AGENTS.md)、[docs/DECISIONS.md:165](docs/DECISIONS.md)），產品水位與實測邊界已校正於 [REVIEW.md](REVIEW.md)。2026-10-29 `gh` 查詢記錄主要 workflow 最近結果成功、開啟安全告警為 0、無 fork release；issues 停用而未查到 issue（2026-10-29 `gh` 查詢）。新版視覺上下文確認、帶 ref 開啟聊天室與多行草稿重驗尚未取得實機證據（[docs/DECISIONS.md:187](docs/DECISIONS.md)）。
 
 ## 近期：可以直接動手
 | 項目 | 為什麼 | 驗收方式 | 建議執行者 | 證據 |
 | --- | --- | --- | --- | --- |
-| 校正 REVIEW 的產品水位與實測邊界 | REVIEW 仍以早期基準概括產品，容易把測試通過誤讀為新版已實測 | 以 baseline、DECISIONS 與最新 CI 更新快照；明列合成測試與帳戶實機的差別，待驗項目只連本路線圖 | Claude Sonnet | [REVIEW.md:6](REVIEW.md)、[REVIEW.md:12](REVIEW.md)、[docs/DECISIONS.md:187](docs/DECISIONS.md) |
+| 修補 `@hono/node-server` moderate 弱點（GHSA-rmxm-3fg6-px4f） | 2026-10-29 `npm audit --package-lock-only` 回報 1 個 moderate，來自 `@modelcontextprotocol/sdk` 的傳遞依賴 | 升到已修版本（或記錄不受影響的理由並加入延後清單）；`npm audit` 0 項；完整閘門綠 | Claude Sonnet | `REVIEW.md:38`；`package.json:42` |
 | 驗證新版聊天室定位與唯讀上下文 | 帶 ref 選取與日期視覺定位已移植，仍缺本機操作證據 | 維護者指定一個測試聊天室、短日期範圍及 LINE build；核對唯一 chat／account ref、標頭、日期與最小頁面結果；不發送訊息，證據去識別且不提交聊天資料 | 維護者 | [docs/DECISIONS.md:173](docs/DECISIONS.md)、[docs/DECISIONS.md:187](docs/DECISIONS.md)、[README.md:122](README.md) |
 
 ## 中期：等條件成立再做
