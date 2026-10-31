@@ -35,7 +35,7 @@ gh repo set-default --view
 - 上游 repository 為 `bensonmaxai/line-desktop-mcp`，採 MIT License。
 - 上游水位審查至 commit `097324e678e6dba60a4c4e187054f8b7397a9100`（v3.3.8），PR 水位為 `#2`，Issue 水位為 `#1`，詳見 [tools/upstream_baseline.json](tools/upstream_baseline.json) 與 [docs/DECISIONS.md](docs/DECISIONS.md)。
 - 上游未配置 GitHub Actions workflows，本 fork 建立了純 Windows 原生 CI 工作流程（涵蓋 Node 24 + Python 3.10–3.14 矩陣、CodeQL、Upstream check、Dependency freshness），最新 main push 執行全數成功（success），開啟安全告警為 0，Dependabot 警示為 0。
-- 依賴安全：2026-10-24 升級直接依賴 `@modelcontextprotocol/sdk` 至 1.32.0 並修補傳遞依賴，當時 `npm audit` 為 0；2026-10-29 重查為 1 個 moderate（`@hono/node-server` GHSA-rmxm-3fg6-px4f），2026-10-30 已修：`npm-shrinkwrap.json` 升 `@hono/node-server` 1.19.17→2.1.5，`npm audit` 為 0（見本次提交）；`ruff` 0.17.2 依賴新鮮度延後處理已記錄於 `.github/dependency-deferrals.json`。
+- 依賴安全：2026-10-24 升級直接依賴 `@modelcontextprotocol/sdk` 至 1.32.0 並修補傳遞依賴，當時 `npm audit` 為 0；2026-10-29 重查為 1 個 moderate（`@hono/node-server` GHSA-rmxm-3fg6-px4f），2026-10-30 已修：`npm-shrinkwrap.json` 升 `@hono/node-server` 1.19.17→2.1.5，`npm audit` 為 0（`e01601bc`）；`ruff` 0.17.2 依賴新鮮度延後處理已記錄於 `.github/dependency-deferrals.json`。
 - 維護工具無 `os.system`／`shell=True`／`eval(`／`exec(`。
 
 ## 已修 findings
