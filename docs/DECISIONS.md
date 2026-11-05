@@ -193,3 +193,11 @@
 **決定**：`requirements-dev.txt` 維持 `ruff>=0.16`，在 `.github/dependency-deferrals.json` 記 `ruff` 延後至 `0.17.2`。
 
 **理由**：宣告是相容性承諾；`ruff>=0.16` 已會安裝 0.17.x，維護 gate（`ruff check --select E9,F --target-version py310 tools`）在 0.17.2 為綠，沒有需要排除 0.16 的理由，所以不調高下限。PyPI 出現比 0.17.2 更新的版本時會再次報紅。
+
+## 2026-11-05：重評 `ruff` 0.17.3 新鮮度
+
+**決定**：延續 2026-10-24 的裁決，將 `.github/dependency-deferrals.json` 的 `ruff.deferredLatest` 從 `0.17.2` 更新為 `0.17.3`，維持 `requirements-dev.txt` 的 `ruff>=0.16`。
+
+**理由**：`ruff>=0.16` 已允許安裝現行版 `0.17.3`，沒有需要排除 `0.16` 的相容性證據；這次延後的是宣告下限調整，不是阻擋新版安裝。下一個 PyPI 新版會再次觸發審查；若維護工具實際需要新版規則或修正，再以重現與相容性測試決定是否提高下限。
+
+**驗證**：Python 3.14.10、Ruff 0.17.3、Node 26.12.1；新鮮度 checker 為 exit 0，GitHub 公開 API 查無未結 Dependabot PR。Windows `tools/dev_check.ps1` 通過（21 項維護測試），`npm test` 通過（409 項）；Python unittest 完成 144 項、0 失敗、8 項跳過。初次 gate 的 pytest 暫存路徑存取遭拒，產品測試另有 2 項 locator 測試因預設 LOCALAPPDATA 路徑檢查拒絕而失敗；僅將程序的 TEMP／TMP、pytest basetemp 與 Python 測試的 LOCALAPPDATA 指向工作樹內 `.cache/` 後重驗通過，未更動程式與斷言。這是隔離測試證據，不代表真實 LINE Desktop 或既有使用者資料目錄已驗證。

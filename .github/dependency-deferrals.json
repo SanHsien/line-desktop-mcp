@@ -1,8 +1,8 @@
 {
   "deferrals": {
     "ruff": {
-      "deferredLatest": "0.17.2",
-      "reason": "ruff>=0.16 already installs 0.17.x; E9+F gate passes on 0.17.2, so the compatibility floor stays at 0.16."
+      "deferredLatest": "0.17.3",
+      "reason": "ruff>=0.16 already permits 0.17.3; retain the 0.16 compatibility floor because no incompatibility requires excluding it. Re-review when PyPI publishes a newer release."
     }
   },
   "notes": "Record deferred dependency version bumps here when keeping an existing major/minor line is intentional."
