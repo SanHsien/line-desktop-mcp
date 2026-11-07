@@ -9,12 +9,11 @@
 ## 近期：可以直接動手
 | 項目 | 為什麼 | 驗收方式 | 建議執行者 | 證據 |
 | --- | --- | --- | --- | --- |
-| （目前沒有）| 剩下的工作都需要已登入的 LINE Desktop 實機或維護者核准，已改成中期的觸發條件列 | — | — | — |
+| 驗證新版聊天室定位與唯讀上下文 | 新版視覺上下文確認、帶 ref 開啟聊天室尚無實機證據；維護者指定測試聊天室、短日期範圍與 LINE build 後，Claude 以 agent-desktop 唯讀驗收（只在已登入的 LINE Desktop 上做，不發送訊息） | 核對唯一 chat／account ref、標頭、日期與最小頁面結果；不發送訊息，證據去識別且不提交聊天資料；結果寫入 `docs/DECISIONS.md` 並把 `README.md:122` 的未驗證敘述改成有證據的敘述 | 維護者（指定測試聊天室與日期範圍）→ Claude 主 session（agent-desktop 唯讀驗收） | [docs/DECISIONS.md:173](docs/DECISIONS.md)、[docs/DECISIONS.md:187](docs/DECISIONS.md)、[README.md:122](README.md) |
 
 ## 中期：等條件成立再做
 | 項目 | 觸發條件 | 驗收方式 | 建議執行者 | 證據 |
 | --- | --- | --- | --- | --- |
-| 驗證新版聊天室定位與唯讀上下文 | 維護者在一台已登入 LINE Desktop 的 Windows 機器上，指定一個測試聊天室、短日期範圍與 LINE build（這一步需要人登入真實帳號，艦隊規劃長無法在無實機的環境代做，也不得跑會操作桌面的測試） | 核對唯一 chat／account ref、標頭、日期與最小頁面結果；不發送訊息，證據去識別且不提交聊天資料；結果寫入 `docs/DECISIONS.md` 並把 `README.md:122` 的未驗證敘述改成有證據的敘述 | 維護者（實機）→ Claude Sonnet（整理證據與文件） | [docs/DECISIONS.md:173](docs/DECISIONS.md)、[docs/DECISIONS.md:187](docs/DECISIONS.md)、[README.md:122](README.md) |
 | 驗證確認 token、多行草稿與傳送回執 | 維護者明確核准測試聊天室、收件人與一筆測試內容 | 驗證 token 過期／範圍變動會拒絕；多行草稿重驗正確；只送一次並唯讀查本機回執，不確定時以同一 idempotencyKey 查詢，不能宣稱對方收到或已讀 | 維護者 | [docs/DECISIONS.md:173](docs/DECISIONS.md)、[docs/DECISIONS.md:181](docs/DECISIONS.md)、[README.md:44](README.md)、[README.md:46](README.md) |
 | 改善日期定位效能或 reader 逾時測試 | 實機日期定位常逾時，或並行測試再次出現同一 reader 逾時 | 保存 build、耗時與最小重現；只修實際瓶頸，相關 Windows 測試及正常定位通過，不靠任意放大產品 timeout 消音 | Codex | [docs/DECISIONS.md:185](docs/DECISIONS.md)；接續開發報告（2026-10-2x）；`test/line-local-reader.test.mjs:290` |
 | 區分操作鎖占用與其他 I/O 錯誤 | 在實機 PowerShell 重現非占用 IOException 被報成 LINE_BUSY | 鎖占用仍拒絕，無效路徑等回準確錯誤；雙程序競爭與釋放後重取測試通過 | Codex | 深掃報告（2026-10-27）「刻意不修／觀察」；`src/automation/line-operation-lock.mjs`、`src/automation/hold-line-operation-lock.ps1` |
