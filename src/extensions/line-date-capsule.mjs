@@ -7,7 +7,9 @@ import { promisify } from 'node:util';
 import { purepngDimensions } from './line-ocr.mjs';
 import { LineToolError } from './line-runtime.mjs';
 const execFile = promisify(execFileCallback);
-export async function locateLineDateCapsule(image, { timeoutMs = 5000 } = {}) {
+export async function locateLineDateCapsule(image, { timeoutMs = 5_000 } = {}) {
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 20_000)
+    throw new LineToolError('LINE_BOUND_CONTEXT_UNVERIFIED', 'Invalid date capsule timeout.');
   const dimensions = purepngDimensions(image);
   if (dimensions.width !== 250 || dimensions.height < 14 || dimensions.height > 50)
     throw new LineToolError('LINE_BOUND_CONTEXT_UNVERIFIED', 'Invalid date capsule crop.');

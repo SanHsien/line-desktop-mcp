@@ -3,9 +3,9 @@
 - Review date: 2026-09-12（初版）；2026-10-29（校正產品水位至上游 v3.3.8、最新 CI 與實測邊界）
 - Review baseline: `097324e678e6dba60a4c4e187054f8b7397a9100`（上游 v3.3.8）
 - Remediation: fork-local overlay（不回貢）
-- Upstream reviewed through: `097324e678e6dba60a4c4e187054f8b7397a9100`（PR `#2`、Issue `#1`）
+- Upstream reviewed through: `9dc73bf3531ed8e59b7ea6e8779defa43c26a8d7`（上游 v3.3.9；PR `#3`、Issue `#4`，2026-11-22，見 [docs/DECISIONS.md:205](docs/DECISIONS.md)）
 - Primary environment: Windows 11、PowerShell、Node.js v26.12.1、Python 3.14.7（本機 gate）；產品 Node 要求 `>=24.0.0`，Python 要求 `>=3.10`
-- Status: 維護骨架與產品相依環境全面可用。Windows 原生門禁與 CI 全綠；產品水位已採用上游 v3.3.8。
+- Status: 維護骨架與產品相依環境全面可用。Windows 原生門禁與 CI 全綠；產品水位已採用上游 v3.3.9（2026-11-22）。
 
 ## 結論
 

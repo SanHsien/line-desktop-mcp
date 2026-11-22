@@ -19,9 +19,9 @@ from npm: it is not this fork.
 
 | What you want to use | Requirement |
 | --- | --- |
-| Base MCP server | Node.js 24 LTS or newer. The package requires Node >= 24.0.0; v3.3.5 pins @modelcontextprotocol/sdk 1.29.0. |
+| Base MCP server | Node.js 24 LTS or newer. The package requires Node >= 24.0.0; this fork (upstream v3.3.9 content) pins @modelcontextprotocol/sdk 1.32.0. |
 | Windows extension catalogue | Set `LINE_MCP_EXTENSIONS=1`. This lists 35 active Windows tools; five legacy aliases remain callable but hidden (40 implemented descriptors). Without that exact value, five default descriptors remain. macOS also lists those five defaults. |
-| Local text and media context | Windows x64, a signed-in LINE Desktop process whose build is in the shipped allowlist, a 64-bit Python, both required Python packages, and the pinned SQLite3MC DLL described below. LINE Desktop 26.4.2.3957 was the tested build. |
+| Local text and media context | Windows x64, a signed-in LINE Desktop process whose build is in the shipped allowlist, a 64-bit Python, both required Python packages, and the pinned SQLite3MC DLL described below. LINE Desktop 26.6.0.4004 was tested for this release. |
 | Named-chat GUI tools | Every Windows named-chat GUI path, including the five defaults, requires a separately installed CUA Driver plus the local-reader Python/DLL prerequisites. AutoHotkey v2 is required only by legacy GUI helper paths; local Windows OCR is required only when the selected path uses it. |
 
 The reader refuses an unknown LINE build with `LINE_BUILD_UNVERIFIED`; it does
@@ -116,7 +116,7 @@ for `LINE_MCP_SQLITE3MC_DLL`; it must be an absolute `.dll` path.
 
 ## 3. Named-chat GUI prerequisites
 
-Pure local database reading works without the CUA Driver. In v3.3.5, however,
+Pure local database reading works without the CUA Driver. In v3.3.9, however,
 every Windows GUI operation scoped to a named chat—including each of the five
 default descriptors—requires `LINE_MCP_CUA_DRIVER`, `LINE_MCP_PYTHON`, and the
 pinned `LINE_MCP_SQLITE3MC_DLL`. This project does not install those components,
@@ -131,6 +131,8 @@ spellings, trimmed or collapsed whitespace, and group member-count suffixes are
 not aliases. A contact-name collision refuses even if a competing contact has
 no chat row. Missing, ambiguous, incomplete, or cross-type matches fail closed.
 CUA connection and tool negotiation may occur before this identity gate.
+
+The exact unbound `Keep筆記` open request uses the verified self profile and existing direct-chat row, checks for colliding names, and follows the built-in shortcut. Its title verification supplies no chat reference or send proof.
 
 `open_line_chat` resolves the exact chat and may open or reuse its titled
 window; it verifies the final HWND, PID, title and chat header. A first search
@@ -156,28 +158,28 @@ refuses. Clipboard History or listeners may still retain the transient copy, and
 a small compare/restore race remains. See [v3 upgrade and compatibility
 notes](MIGRATING.md#upgrading-to-v300).
 
-### CUA Driver 0.23.2
+### CUA Driver 0.46.1
 
 Download the
-[official CUA Driver 0.23.2 Windows x86_64 archive](https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.23.2/cua-driver-rs-0.23.2-windows-x86_64-binary.zip)
+[official CUA Driver 0.46.1 Windows x86_64 archive](https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.46.1/cua-driver-rs-0.46.1-windows-x86_64-binary.zip)
 and verify its archive hash before extracting it:
 
 ~~~powershell
 $runtimeRoot = 'C:\Tools\line-desktop-mcp-runtime'
-$driverArchive = Join-Path $runtimeRoot 'cua-driver-rs-0.23.2-windows-x86_64-binary.zip'
-Invoke-WebRequest -Uri 'https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.23.2/cua-driver-rs-0.23.2-windows-x86_64-binary.zip' -OutFile $driverArchive
-$expectedDriverArchiveHash = '27a41831d5dda71082b58154ff87966a9ad8131ce66e8060da2d860558655c13'
+$driverArchive = Join-Path $runtimeRoot 'cua-driver-rs-0.46.1-windows-x86_64-binary.zip'
+Invoke-WebRequest -Uri 'https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.46.1/cua-driver-rs-0.46.1-windows-x86_64-binary.zip' -OutFile $driverArchive
+$expectedDriverArchiveHash = 'ec49cca509f25f65db2fa917718215f55f959d5ef650bf8ab2238a201d5666ac'
 $actualDriverArchiveHash = (Get-FileHash -LiteralPath $driverArchive -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($actualDriverArchiveHash -ne $expectedDriverArchiveHash) { throw 'CUA Driver archive SHA-256 mismatch.' }
 
-$driverRoot = Join-Path $runtimeRoot 'cua-driver-rs-0.23.2'
+$driverRoot = Join-Path $runtimeRoot 'cua-driver-rs-0.46.1'
 Expand-Archive -LiteralPath $driverArchive -DestinationPath $driverRoot
 Get-ChildItem -LiteralPath $driverRoot -Recurse -File -Filter '*.exe' | Select-Object FullName
 ~~~
 
 Use the extracted driver's absolute `.exe` path for `LINE_MCP_CUA_DRIVER`.
 For each UI operation, LINE Agent MCP starts that public executable with
-`mcp` over stdio and closes the session afterward. It does not run an
+`mcp --direct` over stdio and closes the session afterward. It does not run an
 always-on daemon.
 
 ### AutoHotkey v2 and local OCR
@@ -218,7 +220,7 @@ the complete Windows extension setup:
         "LINE_MCP_EXTENSIONS": "1",
         "LINE_MCP_PYTHON": "C:/Tools/line-desktop-mcp/.venv/Scripts/python.exe",
         "LINE_MCP_SQLITE3MC_DLL": "C:/Tools/line-desktop-mcp-runtime/sqlite3mc-2.5.1/dll/sqlite3mc_x64.dll",
-        "LINE_MCP_CUA_DRIVER": "C:/Tools/line-desktop-mcp-runtime/cua-driver-rs-0.23.2/cua-driver.exe",
+        "LINE_MCP_CUA_DRIVER": "C:/Tools/line-desktop-mcp-runtime/cua-driver-rs-0.46.1/cua-driver.exe",
         "LINE_MCP_AUTOHOTKEY": "C:/Program Files/AutoHotkey/v2/AutoHotkey64.exe"
       }
     }
@@ -238,7 +240,7 @@ For a new Codex registration, the same values can be supplied with quoted
 PowerShell arguments:
 
 ~~~powershell
-codex mcp add line-desktop-mcp --env "LINE_MCP_EXTENSIONS=1" --env "LINE_MCP_PYTHON=C:/Tools/line-desktop-mcp/.venv/Scripts/python.exe" --env "LINE_MCP_SQLITE3MC_DLL=C:/Tools/line-desktop-mcp-runtime/sqlite3mc-2.5.1/dll/sqlite3mc_x64.dll" --env "LINE_MCP_CUA_DRIVER=C:/Tools/line-desktop-mcp-runtime/cua-driver-rs-0.23.2/cua-driver.exe" --env "LINE_MCP_AUTOHOTKEY=C:/Program Files/AutoHotkey/v2/AutoHotkey64.exe" -- "C:\Tools\node\node.exe" "C:\Tools\line-desktop-mcp\src\server.js"
+codex mcp add line-desktop-mcp --env "LINE_MCP_EXTENSIONS=1" --env "LINE_MCP_PYTHON=C:/Tools/line-desktop-mcp/.venv/Scripts/python.exe" --env "LINE_MCP_SQLITE3MC_DLL=C:/Tools/line-desktop-mcp-runtime/sqlite3mc-2.5.1/dll/sqlite3mc_x64.dll" --env "LINE_MCP_CUA_DRIVER=C:/Tools/line-desktop-mcp-runtime/cua-driver-rs-0.46.1/cua-driver.exe" --env "LINE_MCP_AUTOHOTKEY=C:/Program Files/AutoHotkey/v2/AutoHotkey64.exe" -- "C:\Tools\node\node.exe" "C:\Tools\line-desktop-mcp\src\server.js"
 ~~~
 
 If you only want the five default descriptors, omit `LINE_MCP_EXTENSIONS`

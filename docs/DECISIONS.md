@@ -201,3 +201,26 @@
 **理由**：`ruff>=0.16` 已允許安裝現行版 `0.17.3`，沒有需要排除 `0.16` 的相容性證據；這次延後的是宣告下限調整，不是阻擋新版安裝。下一個 PyPI 新版會再次觸發審查；若維護工具實際需要新版規則或修正，再以重現與相容性測試決定是否提高下限。
 
 **驗證**：Python 3.14.10、Ruff 0.17.3、Node 26.12.1；新鮮度 checker 為 exit 0，GitHub 公開 API 查無未結 Dependabot PR。Windows `tools/dev_check.ps1` 通過（21 項維護測試），`npm test` 通過（409 項）；Python unittest 完成 144 項、0 失敗、8 項跳過。初次 gate 的 pytest 暫存路徑存取遭拒，產品測試另有 2 項 locator 測試因預設 LOCALAPPDATA 路徑檢查拒絕而失敗；僅將程序的 TEMP／TMP、pytest basetemp 與 Python 測試的 LOCALAPPDATA 指向工作樹內 `.cache/` 後重驗通過，未更動程式與斷言。這是隔離測試證據，不代表真實 LINE Desktop 或既有使用者資料目錄已驗證。
+
+## 2026-11-22：上游 v3.3.9（`097324e..9dc73bf`）、PR #3 與 issue #4 審查
+
+**決定**：6 項採用、1 項不採用、1 項延後；`reviewed_through` 推進至 `9dc73bf`，PR 水位 `#3`、issue 水位 `#4`。做法同 2026-10-24：`git diff 097324e 9dc73bf | git apply --3way`，排除 `.github/workflows/windows-ci.yml`，壓成單一 commit。
+
+| 項目 | 結論 | 理由 |
+| --- | --- | --- |
+| `0579416` CUA Driver 0.46.1 | 採用 | Windows 上以 `mcp --direct` 啟動 driver；`get_window_state` 只在 live schema 的 enum 有 `elements` 時才帶 `tree_format`；0.46.1 的 `right_click` 比照 0.28.2 改走 `click(button:right)`，保留同一視窗、目標與 `delivery_mode`，缺 `click` 時拒絕。沒有新端點、沒有放寬確認 |
+| `d5b3af3` 開啟 Keep筆記 | 採用 | 只開窗不送出：`open_line_chat` 對確切 `Keep筆記` 只接受未綁定的 `direct`／`auto`，GUI 前先跑私有 `keepOpenIdentity` 模式（只讀 `_profile._mid`、對應 `_chat` 列、名稱清冊，不讀訊息），同名衝突回 `CHAT_AMBIGUOUS`；側欄按鈕與「以個別視窗開啟」都要唯一、可 invoke、座標落在視窗內才點；結果不回 chat ref，也不能當送出證據 |
+| `cf3c98d` LINE 26.6.0.4004 | 採用 | 允許清單新增一筆釘住 bytes 與 SHA-256 的 build，未知 build 仍回 `LINE_BUILD_UNVERIFIED` |
+| `48cc90a` v3.3.9 發行 | 部分採用 | 版本號、CHANGELOG、發行說明、README 採用；`docs/quickstart-windows.md` 保留 fork 的 `main` 安裝路徑，只採需求表與 CUA 0.46.1 下載／雜湊，SDK 釘版照實寫 fork 的 1.32.0 |
+| `48cc90a`／`70042c4` `windows-ci.yml` | 不採用 | fork 的 `ci.yml` 已在 Windows 跑 py3.10–3.14 矩陣、`dev_check.ps1` 與 `test_product.ps1`；再加一份只跑 PR 的 workflow 是重複。上游版會下載 SQLite3MC 並驗兩層 SHA-256，不是未驗證的下載執行。**觸發**：若要在 CI 跑需要 `LINE_MCP_SQLITE3MC_DLL` 的 reader 測試，再把那一步併進 `ci.yml` |
+| `a59939e` 日期膠囊逾時 | 採用 | 上游補上 fork 2026-10-24 已有的 `{timeoutMs}` 選項並加界限（1–20000 ms，超出回 `LINE_BOUND_CONTEXT_UNVERIFIED`）。fork 測試原本傳 30000，會被新界限拒絕，改採上游的 20000；**fork 差異就此收斂，不再需要保留** |
+| `9dc73bf`／PR #3 | 採用 | 上面幾項的合併 commit（PR #3 已合併，head `a59939e`） |
+| Issue #4（open）：直聊名稱改存在 JSON 欄位 | 延後 | 報告者稱 LINE 26.6.0.4004 上部分直聊的現名只在 `_friendDetail`／`_targetProfileDetail` JSON 欄位，依名稱查會 `CHAT_NOT_FOUND`。目前方向是拒絕而不是讀錯聊天室，安全；修正要擴大 `restrict_reads` 允許的欄位，應等上游的實作再審，不自行改。同一 issue 提到全 NULL 的 `_contact` 列會讓新的 Keep 身分檢查回 `GUI_IDENTITY_ID_INVALID`，也是拒絕方向。**觸發**：上游出現對應 PR 或 commit；或維護者實機遇到 `CHAT_NOT_FOUND` |
+
+**審查**：逐行讀過 `src/` 的全部差異（`cua-line-client.mjs`、`line-keep-open.mjs`、`line-ui.mjs`、`line-local-reader.mjs`、`line_scoped_core.py`、`line-date-capsule.mjs`、`line_client_builds.json`）。沒有混淆、遠端文字 eval、長 base64、`curl|sh`／`iwr|iex`、新網路端點或遙測，也沒有放寬送出確認或讀取範圍。
+
+**紅→綠**：上游新測試放在採用前的樹上跑：Node 15 項中 3 項失敗（`line-keep-open.test.mjs` 無法載入、`snapshot` 未帶 `tree_format`），Python 12 項中 7 失敗 1 錯誤（Keep 身分模式不存在、允許清單少 26.6.0.4004）。採用後 `npm test` 414 pass／0 fail；`python -B -m unittest discover -s test/python` 148 項 OK（8 skipped）。
+
+**fork 自有文件同步**：`README.en.md`、`docs/README.en.md`、`docs/MIGRATING.md` 改為 v3.3.9；`MIGRATING.md` 範例的 CUA 路徑改 0.46.1。工具數不變（Keep 是 `open_line_chat` 的分支）。
+
+**未驗證**：Keep筆記開窗、CUA 0.46.1 與 LINE 26.6.0.4004 在本 fork 的實機行為（上游自述有一次授權實測，本 fork 沒有）。仍在用 CUA 0.23.2／0.28.2 的安裝是否接受 `mcp --direct` 也未驗證；若 driver 啟動失敗，先升到 0.46.1。
